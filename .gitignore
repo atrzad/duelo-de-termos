@@ -1,0 +1,33 @@
+# Segredos e configuração local
+.env
+.env.*
+!.env.example
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+dist/
+*.tsbuildinfo
+coverage/
+
+# Banco local (fases futuras)
+*.sqlite3
+*.db
+
+# Playwright (fases futuras)
+playwright-report/
+test-results/
+
+# Editor e sistema
+.vscode/
+.idea/
+.DS_Store
+*.log

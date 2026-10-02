@@ -1,0 +1,78 @@
+@import 'tailwindcss';
+
+/*
+ * Tokens de cor do tema. Os componentes usam apenas as utilidades geradas
+ * pelo @theme (bg-surface, text-fg, bg-tile-correct...), nunca cores soltas.
+ */
+:root {
+  color-scheme: light dark;
+
+  --bg: #f7f6f2;
+  --surface: #ffffff;
+  --fg: #1c1b19;
+  --fg-muted: #67645e;
+  --border: #d6d3cc;
+  --danger: #c0392b;
+
+  --tile-border: #d6d3cc;
+  --tile-border-filled: #8a867e;
+  --tile-correct: #2e7d4f;
+  --tile-present: #b07f00;
+  --tile-absent: #6e6b65;
+  --tile-fg: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121213;
+    --surface: #1c1c1e;
+    --fg: #f2f1ee;
+    --fg-muted: #a3a09a;
+    --border: #3a3a3c;
+    --danger: #ef6b5b;
+
+    --tile-border: #3a3a3c;
+    --tile-border-filled: #6b6b6e;
+    --tile-correct: #3a8f5c;
+    --tile-present: #b8860b;
+    --tile-absent: #3a3a3c;
+    --tile-fg: #ffffff;
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-border: var(--border);
+  --color-danger: var(--danger);
+
+  --color-tile-border: var(--tile-border);
+  --color-tile-border-filled: var(--tile-border-filled);
+  --color-tile-correct: var(--tile-correct);
+  --color-tile-present: var(--tile-present);
+  --color-tile-absent: var(--tile-absent);
+  --color-tile-fg: var(--tile-fg);
+}
+
+@layer base {
+  body {
+    @apply bg-bg font-sans text-fg antialiased;
+  }
+}
+
+@layer components {
+  .btn-primary,
+  .btn-secondary {
+    @apply inline-flex min-h-12 items-center justify-center rounded-lg px-5 font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fg disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-primary {
+    @apply bg-fg text-bg;
+  }
+
+  .btn-secondary {
+    @apply border-2 border-border bg-surface text-fg;
+  }
+}
