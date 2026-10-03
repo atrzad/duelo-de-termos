@@ -988,10 +988,13 @@ Uma pessoa consegue jogar localmente no navegador, com avaliação correta de le
 
 Objetivo: criar o domínio oficial do jogo sem Socket.IO.
 
-> **Nota (2026-10-03):** cortado rápido a pedido do usuário, comprimido com as
-> Fases 3 e 4 — ver nota no início da Fase 4. Entregue: motor de regras single-mode
-> (sem GameMode/Normal/Competitivo/Hardcore, sem classes Round/PlayerRoundState
-> formais — ver `Sala`/`Jogador`/`Tentativa` em `app/game/rooms.py`).
+> **Nota (2026-10-03, atualizada):** os 3 modos (Normal/Competitivo/Hardcore)
+> foram implementados de verdade em `app/game/modes.py` (tabelas de pontuação,
+> testadas em `tests/test_modes.py`) + `app/game/rooms.py` (regras de quando o
+> palpite é aceito e quando a partida termina, por modo). Sem GameMode/Round/
+> PlayerRoundState como classes formais separadas — o equivalente é
+> `Sala`/`Jogador`/`Tentativa`, mais simples e suficiente pro que os 3 modos
+> precisam.
 
 Tarefas:
 
@@ -1003,10 +1006,10 @@ Tarefas:
 [ ] Implementar normalização de palavras. (só .upper(); sem tratar acento)
 [x] Implementar validação de palpite.
 [x] Implementar avaliação de letras.
-[ ] Criar GameMode.
-[ ] Criar Round, PlayerRoundState e GuessResult.
-[ ] Implementar regras de Normal, Competitivo e Hardcore.
-[x] Criar testes Pytest completos do domínio. (do modo único que existe)
+[x] Criar GameMode. (enum.StrEnum em app/game/modes.py)
+[ ] Criar Round, PlayerRoundState e GuessResult. (equivalente: Sala/Jogador/Tentativa)
+[x] Implementar regras de Normal, Competitivo e Hardcore.
+[x] Criar testes Pytest completos do domínio. (modes.py + rooms.py, 3 modos)
 ```
 
 Critério de aceite:
@@ -1015,27 +1018,31 @@ Critério de aceite:
 O backend consegue executar regras dos três modos sem interface, com testes automatizados.
 ```
 
-**Não atingido como escrito** — só 1 modo existe, não 3.
+**Atingido**: os 3 modos têm pontuação e condição de fim de partida próprias, testados em `test_modes.py` (12 testes) e `test_rooms.py` (21 testes, incluindo timer real via `expirar_tempo`/`forcar_fim_tentativa_final`).
 
 ### Fase 3 — Salas e identidade simples
 
 Objetivo: permitir que dois jogadores entrem na mesma sala.
 
-> **Nota (2026-10-03):** sem persistência (tudo em memória, um processo só —
-> cai se o servidor reiniciar no meio de uma partida). Eventos Socket.IO em
-> português (`criar_sala`/`entrar_sala`/`enviar_palpite`), não no namespace
+> **Nota (2026-10-03, atualizada):** persistência mínima implementada —
+> SQLite + SQLAlchemy async + Alembic (`app/game/persistence.py`,
+> `GET /partidas`), mas só do **resultado de partidas terminadas** (histórico),
+> não do estado AO VIVO de uma partida em andamento; o servidor cair no meio
+> de uma rodada ainda perde essa rodada específica (reconexão de sessão
+> continua sendo Fase 5, não implementada). Eventos Socket.IO em português
+> (`criar_sala`/`entrar_sala`/`enviar_palpite`), não no namespace
 > `room:*`/`guess:*` descrito abaixo — mesma ideia, nomes diferentes.
 
 Tarefas:
 
 ```text
-[ ] Configurar SQLite e SQLAlchemy.
-[ ] Criar migrações Alembic.
-[ ] Criar Player.
-[ ] Criar Room e RoomPlayer. (equivalente em memória: Sala/Jogador)
+[x] Configurar SQLite e SQLAlchemy.
+[x] Criar migrações Alembic.
+[ ] Criar Player. (nome é só da conexão, não é uma entidade persistida própria)
+[x] Criar Room e RoomPlayer. (como histórico: tabela `partida`, não estado ao vivo)
 [x] Criar geração segura de código de sala. (secrets, não random)
-[ ] Criar identidade anônima persistida. (nome é só da conexão, não persiste)
-[ ] Criar endpoints HTTP de leitura.
+[ ] Criar identidade anônima persistida. (nome não persiste entre partidas)
+[x] Criar endpoints HTTP de leitura. (GET /partidas, paginado)
 [x] Configurar Socket.IO.
 [x] Implementar room:create. (criar_sala)
 [x] Implementar room:join. (entrar_sala)
@@ -1056,28 +1063,35 @@ Duas abas de navegador conseguem entrar na mesma sala e marcar-se como prontas.
 
 Objetivo: criar uma partida 1v1 funcional.
 
-> **Nota (2026-10-03):** o critério de aceite desta fase — "dois dispositivos
-> disputam uma partida completa em tempo real" — **foi atingido e testado de
-> verdade** (2 contextos de navegador reais via Playwright, não só simulação
-> Python): sala por código, corrida simultânea, resultado só pra quem jogou,
-> progresso do oponente sem vazar letra nenhuma (testado explicitamente nos
-> dois níveis), fim por vitória/derrota/empate, palavra revelada só no fim.
-> Sem timer, sem placar/múltiplas rodadas, sem os 3 modos, sem revanche —
-> cortado deliberadamente pelo prazo.
+> **Nota (2026-10-03, atualizada):** o critério de aceite desta fase — "dois
+> dispositivos disputam uma partida completa em tempo real" — **foi atingido
+> e testado de verdade**, incluindo os 3 modos: sala por código, timer real
+> no servidor (90s pra Normal/Hardcore, com tarefa assíncrona por sala — ver
+> `app/game/sockets.py`), prorrogação e tentativa final no modo Normal,
+> encerramento imediato no Hardcore, placar por modo, resultado só pra quem
+> jogou, progresso do oponente sem vazar letra nenhuma, palavra revelada só
+> no fim, histórico persistido. Sem múltiplas rodadas por partida nem
+> revanche direta com o mesmo oponente — cortado deliberadamente pelo prazo.
+>
+> **Bug real encontrado só com teste de timer de verdade** (não pelos testes
+> unitários da Fase 2): `_finalizar_e_notificar` cancelava a si mesma quando
+> chamada de dentro da própria task do timer (Hardcore por timeout), abortando
+> o `fim_de_jogo` na metade. Corrigido com uma guarda contra auto-cancelamento
+> em `_cancelar_timer`.
 
 Tarefas:
 
 ```text
-[ ] Criar Match e Round no banco.
+[ ] Criar Match e Round no banco. (só o resultado final persiste, não rodadas)
 [ ] Implementar início de rodada. (não há "rodada" separada da partida)
-[ ] Implementar timer no backend.
+[x] Implementar timer no backend. (90s, Normal e Hardcore, asyncio.create_task por sala)
 [x] Implementar guess:submit. (enviar_palpite)
 [x] Emitir guess:result apenas para quem enviou.
 [x] Emitir opponent:progress sem vazar letras.
-[ ] Implementar placar.
+[x] Implementar placar. (fórmulas da seção 9, uma por modo)
 [x] Implementar fim de rodada.
 [x] Revelar palavra somente ao final.
-[ ] Implementar os três modos.
+[x] Implementar os três modos.
 [x] Implementar tela de resultado.
 [ ] Implementar revanche. ("voltar pro lobby" existe; revanche direta não)
 ```
@@ -1088,23 +1102,32 @@ Critério de aceite:
 Dois dispositivos conseguem disputar uma partida completa em tempo real.
 ```
 
-**Atingido e testado de verdade** (ver nota acima).
+**Atingido e testado de verdade** (ver nota acima) — pros 3 modos, com timers reais (não simulados) e 2 navegadores reais via Playwright.
 
 ### Fase 5 — Qualidade, persistência e reconexão
 
 Objetivo: tornar a experiência robusta.
 
+> **Nota (2026-10-03):** "Salvar histórico" adiantado da Fase 3 (resultado
+> final de cada partida, não rodada a rodada — não há múltiplas rodadas por
+> partida ainda). "Testes E2E Playwright" foi usado bastante *durante* o
+> desenvolvimento desta sessão (2 navegadores reais, scripts `.mjs` ad hoc)
+> pra pegar bugs que os testes unitários não pegavam — mas não existe uma
+> suíte Playwright *commitada* no repo; cada verificação foi um script
+> temporário, rodado e descartado. Virar isso numa suíte de verdade (com
+> `@playwright/test`, CI, etc.) ainda não foi feito.
+
 Tarefas:
 
 ```text
-[ ] Salvar histórico de rodadas e palpites.
+[x] Salvar histórico de rodadas e palpites. (partidas terminadas; sem detalhe por palpite)
 [ ] Implementar reconexão.
 [ ] Implementar expiração de sala.
-[ ] Implementar tratamento de abandono.
+[ ] Implementar tratamento de abandono. (desconexão notifica o oponente; sem reconexão)
 [ ] Adicionar logs estruturados.
 [ ] Adicionar rate limiting.
-[ ] Adicionar testes de integração.
-[ ] Adicionar testes E2E Playwright.
+[x] Adicionar testes de integração. (2 clientes Socket.IO reais, inclusive com timers reais)
+[ ] Adicionar testes E2E Playwright. (usado ad hoc na sessão; sem suíte commitada)
 [ ] Melhorar acessibilidade.
 [ ] Revisar UI mobile.
 ```

@@ -1,8 +1,13 @@
 """Teste de ponta a ponta do 1v1: sobe o servidor ASGI real numa porta de
 teste e conecta dois clientes Socket.IO de verdade (não mocka nada da camada
-de eventos). Só o pico na palavra secreta via `gerenciador` é "trapaça branca"
-deliberada — mesmo processo de teste, acesso que nenhum cliente real tem —
-pra não depender de sorte pra testar vitória/derrota.
+de eventos, nem os timers — os testes de modo Hardcore/Normal usam durações
+curtas via monkeypatch, mas é o `asyncio.sleep` de verdade rodando). Só o
+pico na palavra secreta via `gerenciador` é "trapaça branca" deliberada —
+mesmo processo de teste, acesso que nenhum cliente real tem — pra não
+depender de sorte pra testar vitória/derrota.
+
+O banco é trocado por um SQLite em memória via monkeypatch em
+`app.game.sockets.SessionLocal`, pra não escrever no `dados/duelo.db` real.
 """
 
 import asyncio
@@ -13,7 +18,10 @@ import pytest
 import pytest_asyncio
 import socketio
 import uvicorn
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from app.core.db import Base
+from app.game import sockets as sockets_module
 from app.game.rooms import gerenciador
 from app.main import socket_app
 
@@ -22,7 +30,13 @@ URL_TESTE = f"http://127.0.0.1:{PORTA_TESTE}"
 
 
 @pytest_asyncio.fixture
-async def servidor_de_teste() -> AsyncIterator[None]:
+async def servidor_de_teste(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[None]:
+    engine_teste = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine_teste.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    session_local_teste = async_sessionmaker(engine_teste, expire_on_commit=False)
+    monkeypatch.setattr(sockets_module, "SessionLocal", session_local_teste)
+
     config = uvicorn.Config(socket_app, host="127.0.0.1", port=PORTA_TESTE, log_level="warning")
     server = uvicorn.Server(config)
     task = asyncio.create_task(server.serve())
@@ -34,6 +48,7 @@ async def servidor_de_teste() -> AsyncIterator[None]:
 
     server.should_exit = True
     await task
+    await engine_teste.dispose()
 
 
 class ClienteDeTeste:
@@ -46,6 +61,7 @@ class ClienteDeTeste:
             "partida_iniciada",
             "resultado_palpite",
             "oponente_jogou",
+            "tempo_esgotado",
             "fim_de_jogo",
             "oponente_saiu",
             "erro",
@@ -68,9 +84,19 @@ class ClienteDeTeste:
     async def proximo_evento(self, timeout: float = 2.0) -> tuple[str, Any]:
         return await asyncio.wait_for(self.eventos.get(), timeout=timeout)
 
+    async def aguardar(self, nome_evento: str, timeout: float = 5.0) -> Any:
+        """Descarta eventos até achar o esperado (útil quando a ordem entre
+        tipos de evento diferentes não é garantida, ex: oponente_jogou vs
+        tempo_esgotado chegando quase juntos)."""
+        async with asyncio.timeout(timeout):
+            while True:
+                evento, dados = await self.proximo_evento(timeout)
+                if evento == nome_evento:
+                    return dados
+
 
 @pytest.mark.asyncio
-async def test_duelo_completo_ate_vitoria_sem_vazar_letras_do_oponente(
+async def test_duelo_competitivo_ate_vitoria_sem_vazar_letras_do_oponente(
     servidor_de_teste: None,
 ) -> None:
     ana = ClienteDeTeste()
@@ -79,16 +105,18 @@ async def test_duelo_completo_ate_vitoria_sem_vazar_letras_do_oponente(
         await ana.conectar()
         await beto.conectar()
 
-        await ana.sio.emit("criar_sala", {"nome": "Ana"})
+        await ana.sio.emit("criar_sala", {"nome": "Ana", "modo": "competitivo"})
         evento, dados = await ana.proximo_evento()
         assert evento == "sala_criada"
+        assert dados["modo"] == "competitivo"
         codigo = dados["codigo"]
 
         await beto.sio.emit("entrar_sala", {"nome": "Beto", "codigo": codigo})
 
-        evento_ana, _ = await ana.proximo_evento()
+        evento_ana, dados_ana = await ana.proximo_evento()
         evento_beto, dados_beto = await beto.proximo_evento()
         assert evento_ana == "partida_iniciada"
+        assert dados_ana["duracaoSegundos"] is None  # Competitivo não tem timer
         assert evento_beto == "partida_iniciada"
         assert dados_beto["oponente"] == "Ana"
 
@@ -105,19 +133,145 @@ async def test_duelo_completo_ate_vitoria_sem_vazar_letras_do_oponente(
         evento, dados = await ana.proximo_evento()
         assert evento == "resultado_palpite"
         assert dados["estados"] == ["correct"] * 5
-        assert dados["tentativasRestantes"] == 5
+        assert dados["numeroTentativa"] == 1
 
         evento, dados = await beto.proximo_evento()
         assert evento == "oponente_jogou"
         assert dados == {"tentativasUsadas": 1}  # nunca letras/estados do oponente
 
-        evento_ana, dados_ana = await ana.proximo_evento()
-        evento_beto, dados_beto = await beto.proximo_evento()
-        assert evento_ana == "fim_de_jogo"
-        assert dados_ana["resultado"] == "venceu"
-        assert dados_ana["palavraSecreta"] == segredo
-        assert evento_beto == "fim_de_jogo"
-        assert dados_beto["resultado"] == "perdeu"
+        # Competitivo: Ana venceu, mas Beto AINDA PODE jogar — diferente do
+        # Hardcore, onde o primeiro acerto encerraria tudo na hora.
+        errado = "ZZZZZ" if segredo != "ZZZZZ" else "XXXXX"
+        for _ in range(6):
+            await beto.sio.emit("enviar_palpite", {"palavra": errado})
+            await beto.proximo_evento()  # resultado_palpite
+
+        dados_fim_ana = await ana.aguardar("fim_de_jogo")
+        dados_fim_beto = await beto.aguardar("fim_de_jogo")
+        assert dados_fim_ana["resultado"] == "venceu"
+        assert dados_fim_ana["meusPontos"] == 6  # acertou na 1ª tentativa
+        assert dados_fim_beto["resultado"] == "perdeu"
+        assert dados_fim_beto["meusPontos"] == 0  # esgotou as 6 sem acertar
+    finally:
+        await ana.desconectar()
+        await beto.desconectar()
+
+
+@pytest.mark.asyncio
+async def test_duelo_hardcore_primeiro_acerto_vence_na_hora(servidor_de_teste: None) -> None:
+    ana = ClienteDeTeste()
+    beto = ClienteDeTeste()
+    try:
+        await ana.conectar()
+        await beto.conectar()
+
+        await ana.sio.emit("criar_sala", {"nome": "Ana", "modo": "hardcore"})
+        _, dados = await ana.proximo_evento()
+        codigo = dados["codigo"]
+
+        await beto.sio.emit("entrar_sala", {"nome": "Beto", "codigo": codigo})
+        dados_ana_inicio = await ana.aguardar("partida_iniciada")
+        await beto.aguardar("partida_iniciada")
+        assert dados_ana_inicio["duracaoSegundos"] == 90
+
+        sala = gerenciador._salas.get(codigo)
+        assert sala is not None and sala.palavra_secreta is not None
+        segredo = sala.palavra_secreta
+
+        await ana.sio.emit("enviar_palpite", {"palavra": segredo})
+
+        fim_ana = await ana.aguardar("fim_de_jogo")
+        fim_beto = await beto.aguardar("fim_de_jogo")
+        assert fim_ana["resultado"] == "venceu"
+        assert fim_ana["meusPontos"] == 3
+        assert fim_beto["resultado"] == "perdeu"
+        assert fim_beto["meusPontos"] == 0
+    finally:
+        await ana.desconectar()
+        await beto.desconectar()
+
+
+@pytest.mark.asyncio
+async def test_duelo_hardcore_tempo_esgota_sem_vencedor(
+    servidor_de_teste: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(sockets_module, "TIMER_HARDCORE_SEGUNDOS", 1)
+
+    ana = ClienteDeTeste()
+    beto = ClienteDeTeste()
+    try:
+        await ana.conectar()
+        await beto.conectar()
+
+        await ana.sio.emit("criar_sala", {"nome": "Ana", "modo": "hardcore"})
+        _, dados = await ana.proximo_evento()
+        codigo = dados["codigo"]
+
+        await beto.sio.emit("entrar_sala", {"nome": "Beto", "codigo": codigo})
+        await ana.aguardar("partida_iniciada")
+        await beto.aguardar("partida_iniciada")
+
+        # Ninguém envia palpite nenhum — só espera o timer (1s) estourar de verdade.
+        await ana.aguardar("tempo_esgotado", timeout=3)
+
+        fim_ana = await ana.aguardar("fim_de_jogo", timeout=3)
+        fim_beto = await beto.aguardar("fim_de_jogo", timeout=3)
+        assert fim_ana["resultado"] == "empate"
+        assert fim_ana["meusPontos"] == 0
+        assert fim_beto["meusPontos"] == 0
+    finally:
+        await ana.desconectar()
+        await beto.desconectar()
+
+
+@pytest.mark.asyncio
+async def test_duelo_normal_prorrogacao_e_tentativa_final_de_verdade(
+    servidor_de_teste: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(sockets_module, "TIMER_NORMAL_SEGUNDOS", 1)
+    monkeypatch.setattr(sockets_module, "TIMER_TENTATIVA_FINAL_SEGUNDOS", 1)
+
+    ana = ClienteDeTeste()
+    beto = ClienteDeTeste()
+    try:
+        await ana.conectar()
+        await beto.conectar()
+
+        await ana.sio.emit("criar_sala", {"nome": "Ana", "modo": "normal"})
+        _, dados = await ana.proximo_evento()
+        codigo = dados["codigo"]
+
+        await beto.sio.emit("entrar_sala", {"nome": "Beto", "codigo": codigo})
+        await ana.aguardar("partida_iniciada")
+        await beto.aguardar("partida_iniciada")
+
+        sala = gerenciador._salas.get(codigo)
+        assert sala is not None and sala.palavra_secreta is not None
+        segredo = sala.palavra_secreta
+
+        # Deixa o tempo (1s) estourar sem ninguém jogar -> entra na janela
+        # de tentativa final de verdade, via o timer real do servidor.
+        await ana.aguardar("tempo_esgotado", timeout=3)
+        await beto.aguardar("tempo_esgotado", timeout=3)
+
+        # Ana usa a tentativa final e acerta.
+        await ana.sio.emit("enviar_palpite", {"palavra": segredo})
+        resultado_ana = await ana.aguardar("resultado_palpite")
+        assert resultado_ana["estados"] == ["correct"] * 5
+
+        # Beto não faz nada -> o timeout de segurança (1s) força o fim da
+        # partida pra ele sozinho, sem precisar enviar palpite nenhum.
+        fim_beto = await beto.aguardar("fim_de_jogo", timeout=3)
+        fim_ana = await ana.aguardar("fim_de_jogo", timeout=3)
+
+        assert fim_ana["resultado"] == "venceu"
+        assert fim_ana["meusPontos"] >= 1  # categoria "tentativa_final" (+bônus de primeiro)
+        assert fim_beto["resultado"] == "perdeu"
+        assert fim_beto["meusPontos"] == 0
+
+        # Falha explícita se o palpite do Beto (que nunca chegou a jogar)
+        # tivesse vazado pra Ana de algum jeito.
+        assert "letras" not in fim_ana
     finally:
         await ana.desconectar()
         await beto.desconectar()
@@ -128,10 +282,24 @@ async def test_palpite_invalido_retorna_erro_amigavel(servidor_de_teste: None) -
     cliente = ClienteDeTeste()
     try:
         await cliente.conectar()
-        await cliente.sio.emit("criar_sala", {"nome": "Ana"})
+        await cliente.sio.emit("criar_sala", {"nome": "Ana", "modo": "competitivo"})
         await cliente.proximo_evento()  # sala_criada
 
         await cliente.sio.emit("enviar_palpite", {"palavra": "AB"})
+
+        evento, dados = await cliente.proximo_evento()
+        assert evento == "erro"
+        assert "mensagem" in dados
+    finally:
+        await cliente.desconectar()
+
+
+@pytest.mark.asyncio
+async def test_criar_sala_com_modo_invalido_retorna_erro(servidor_de_teste: None) -> None:
+    cliente = ClienteDeTeste()
+    try:
+        await cliente.conectar()
+        await cliente.sio.emit("criar_sala", {"nome": "Ana", "modo": "turbo"})
 
         evento, dados = await cliente.proximo_evento()
         assert evento == "erro"
@@ -162,7 +330,7 @@ async def test_desconexao_avisa_o_oponente(servidor_de_teste: None) -> None:
         await ana.conectar()
         await beto.conectar()
 
-        await ana.sio.emit("criar_sala", {"nome": "Ana"})
+        await ana.sio.emit("criar_sala", {"nome": "Ana", "modo": "competitivo"})
         _, dados = await ana.proximo_evento()
         codigo = dados["codigo"]
 

@@ -7,24 +7,39 @@ import { Keyboard } from '../components/Keyboard'
 import { OpponentProgress } from '../components/OpponentProgress'
 import { buildBoard, toBoardRows } from '../features/game/board'
 import { MAX_ATTEMPTS, useDuel } from '../features/duel/useDuel'
+import { useCountdown } from '../features/duel/useCountdown'
+import { MODOS } from '../features/duel/types'
+import type { GameMode } from '../features/duel/types'
 
 const RESULTADO_TEXTO: Record<string, string> = {
   venceu: 'Você venceu!',
   perdeu: 'Você perdeu.',
-  empate: 'Empate — ninguém acertou a tempo.',
+  empate: 'Empate.',
+}
+
+function formatarTempo(segundos: number): string {
+  const minutos = Math.floor(segundos / 60)
+  const resto = segundos % 60
+  return `${String(minutos)}:${String(resto).padStart(2, '0')}`
 }
 
 export function DuelPage() {
   const {
     fase,
     codigo,
+    modo,
+    duracaoSegundos,
     nomeOponente,
     currentGuess,
     submittedGuesses,
     keyStates,
+    euConclui,
     tentativasOponente,
+    tempoEsgotado,
     resultadoFinal,
     palavraSecreta,
+    meusPontos,
+    pontosOponente,
     mensagemErro,
     oponenteSaiu,
     criarSala,
@@ -37,9 +52,12 @@ export function DuelPage() {
 
   const [nome, setNome] = useState('')
   const [codigoDigitado, setCodigoDigitado] = useState('')
+  const [modoEscolhido, setModoEscolhido] = useState<GameMode>('competitivo')
+
+  const tempoRestante = useCountdown(duracaoSegundos, fase === 'jogando' && !tempoEsgotado)
 
   useEffect(() => {
-    if (fase !== 'jogando') return
+    if (fase !== 'jogando' || euConclui) return
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === 'Enter') {
@@ -55,12 +73,12 @@ export function DuelPage() {
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
     }
-  }, [fase, addLetter, removeLetter, enviarPalpite])
+  }, [fase, euConclui, addLetter, removeLetter, enviarPalpite])
 
   function handleCriar(event: SubmitEvent) {
     event.preventDefault()
     if (nome.trim().length === 0) return
-    criarSala(nome.trim())
+    criarSala(nome.trim(), modoEscolhido)
   }
 
   function handleEntrar(event: SubmitEvent) {
@@ -76,7 +94,9 @@ export function DuelPage() {
           ← Início
         </Link>
         <h1 className="text-lg font-bold">Duelo 1v1</h1>
-        <span className="w-12" aria-hidden="true" />
+        <span className="w-12 text-right text-xs font-bold text-fg-muted">
+          {fase === 'jogando' && tempoRestante !== null ? formatarTempo(tempoRestante) : ''}
+        </span>
       </header>
 
       {mensagemErro && (
@@ -100,6 +120,33 @@ export function DuelPage() {
                 placeholder="Como quer ser chamado"
               />
             </label>
+
+            <fieldset className="grid gap-2">
+              <legend className="text-sm font-semibold">Modo</legend>
+              {MODOS.map((opcao) => (
+                <label
+                  key={opcao.valor}
+                  className="flex cursor-pointer items-start gap-2 rounded-md border-2 border-border bg-surface p-2 text-sm has-[:checked]:border-tile-border-filled"
+                >
+                  <input
+                    type="radio"
+                    name="modo"
+                    value={opcao.valor}
+                    checked={modoEscolhido === opcao.valor}
+                    onChange={() => {
+                      setModoEscolhido(opcao.valor)
+                    }}
+                    className="mt-1"
+                  />
+                  <span>
+                    <strong>{opcao.rotulo}</strong>
+                    <br />
+                    <span className="text-fg-muted">{opcao.descricao}</span>
+                  </span>
+                </label>
+              ))}
+            </fieldset>
+
             <button type="submit" className="btn-primary">
               Criar sala
             </button>
@@ -130,6 +177,9 @@ export function DuelPage() {
           <p className="text-sm text-fg-muted">Código da sala</p>
           <p className="text-4xl font-bold tracking-[0.3em]">{codigo}</p>
           <p className="text-sm text-fg-muted">
+            Modo: <strong>{MODOS.find((m) => m.valor === modo)?.rotulo}</strong>
+          </p>
+          <p className="text-sm text-fg-muted">
             Passe esse código pra outra pessoa jogar. Aguardando oponente…
           </p>
         </div>
@@ -137,18 +187,39 @@ export function DuelPage() {
 
       {fase === 'jogando' && (
         <>
+          {tempoEsgotado && modo === 'normal' && !euConclui && (
+            <p
+              role="status"
+              className="rounded-md bg-tile-present p-2 text-center text-sm font-bold text-tile-fg"
+            >
+              Tempo esgotado! Última tentativa.
+            </p>
+          )}
+          {!tempoEsgotado &&
+            modo === 'normal' &&
+            submittedGuesses.length >= MAX_ATTEMPTS &&
+            !euConclui && (
+              <p className="text-center text-sm font-semibold text-fg-muted">Prorrogação</p>
+            )}
+
           <GameBoard rows={buildBoard(toBoardRows(submittedGuesses, currentGuess))} />
           <OpponentProgress
             nome={nomeOponente ?? 'Oponente'}
             tentativasUsadas={tentativasOponente}
-            maxTentativas={MAX_ATTEMPTS}
           />
-          <Keyboard
-            keyStates={keyStates}
-            onLetter={addLetter}
-            onEnter={enviarPalpite}
-            onBackspace={removeLetter}
-          />
+
+          {euConclui ? (
+            <p className="text-center text-sm text-fg-muted">
+              Você concluiu. Aguardando o oponente…
+            </p>
+          ) : (
+            <Keyboard
+              keyStates={keyStates}
+              onLetter={addLetter}
+              onEnter={enviarPalpite}
+              onBackspace={removeLetter}
+            />
+          )}
         </>
       )}
 
@@ -160,6 +231,10 @@ export function DuelPage() {
             <>
               <p className="text-lg font-bold">
                 {resultadoFinal ? RESULTADO_TEXTO[resultadoFinal] : ''}
+              </p>
+              <p className="text-sm text-fg-muted">
+                Você: <strong>{meusPontos ?? 0} pts</strong> · {nomeOponente ?? 'Oponente'}:{' '}
+                <strong>{pontosOponente ?? 0} pts</strong>
               </p>
               {palavraSecreta && (
                 <p className="text-sm text-fg-muted">

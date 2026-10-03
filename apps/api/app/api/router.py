@@ -1,8 +1,7 @@
 from fastapi import APIRouter
 
-from app.api import health
+from app.api import health, partidas
 
 api_router = APIRouter()
 api_router.include_router(health.router)
-
-# As rotas versionadas (/api/v1/rooms, /api/v1/matches, ...) entram aqui nas próximas fases.
+api_router.include_router(partidas.router)

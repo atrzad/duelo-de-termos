@@ -1,28 +1,50 @@
-"""Eventos Socket.IO do 1v1 (Fase 4, versão mínima: sem reconexão, sem conta
-de usuário — sala por código, corrida simultânea, primeiro a acertar vence).
-Eventos pequenos e tipados (regra 11 do PROJECT_SCOPE.md); todo payload de
+"""Eventos Socket.IO do 1v1 (sala por código, 3 modos — seção 9 do
+PROJECT_SCOPE.md). Eventos pequenos e tipados (regra 11); todo payload de
 entrada passa por validação de schema (regra 6) antes de tocar no domínio.
 """
 
+import asyncio
+import logging
 from typing import Any
 
 import socketio
 from pydantic import ValidationError
 
+from app.core.db import SessionLocal
+from app.game.modes import TIMER_HARDCORE_SEGUNDOS, TIMER_NORMAL_SEGUNDOS, GameMode
+from app.game.persistence import salvar_partida
 from app.game.rooms import (
-    MAX_TENTATIVAS,
+    Sala,
     SalaEmAndamentoError,
     SalaNaoEncontradaError,
     gerenciador,
 )
 from app.game.schemas import CriarSalaPayload, EntrarSalaPayload, EnviarPalpitePayload
 
-# "*" em vez de settings.cors_origin_list de propósito: em produção o
-# front é servido pela própria API (mesma origem), mas em dev o Vite roda
-# numa porta diferente (5173 -> 8000) e manter a lista fixa quebraria um dos
-# dois cenários. Sem cookies/sessão no handshake (identidade = nome + código
-# de sala), liberar a origem aqui não abre superfície de ataque nova.
+logger = logging.getLogger(__name__)
+
+TIMER_TENTATIVA_FINAL_SEGUNDOS = 20
+
+# "*" em vez de settings.cors_origin_list de propósito: em produção o front é
+# servido pela própria API (mesma origem), mas em dev o Vite roda numa porta
+# diferente (5173 -> 8000) e manter a lista fixa quebraria um dos dois
+# cenários. Sem cookies/sessão no handshake (identidade = nome + código de
+# sala), liberar a origem aqui não abre superfície de ataque nova.
 sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
+
+# Timer (principal ou de tentativa final) pendente de cada sala, pra poder
+# cancelar se a partida acabar antes do tempo estourar.
+_timers: dict[str, asyncio.Task[None]] = {}
+
+
+def _cancelar_timer(codigo: str) -> None:
+    task = _timers.pop(codigo, None)
+    # task is not asyncio.current_task(): _finalizar_e_notificar pode ser
+    # chamada DE DENTRO do próprio _timer_principal (ex: Hardcore que
+    # termina por timeout) — cancelar a própria task em execução abortaria
+    # o resto da função (incluindo o emit de fim_de_jogo) no meio do caminho.
+    if task is not None and not task.done() and task is not asyncio.current_task():
+        task.cancel()
 
 
 async def _erro(sid: str, mensagem: str) -> None:
@@ -30,11 +52,61 @@ async def _erro(sid: str, mensagem: str) -> None:
     await sio.emit("erro", {"mensagem": mensagem}, to=sid)
 
 
+async def _finalizar_e_notificar(sala: Sala) -> None:
+    _cancelar_timer(sala.codigo)
+
+    try:
+        async with SessionLocal() as db:
+            await salvar_partida(db, sala)
+    except Exception:
+        # Falha ao persistir não pode derrubar a notificação aos jogadores.
+        logger.exception("Erro ao salvar histórico da partida %s", sala.codigo)
+
+    for jogador_sid, jogador in sala.jogadores.items():
+        oponente = sala.outro_jogador(jogador_sid)
+        await sio.emit(
+            "fim_de_jogo",
+            {
+                "resultado": sala.resultado_para(jogador_sid),
+                "palavraSecreta": sala.palavra_secreta,
+                "meusPontos": jogador.pontos,
+                "pontosOponente": oponente.pontos if oponente else 0,
+            },
+            to=jogador_sid,
+        )
+
+
+async def _timer_principal(codigo: str, duracao: int) -> None:
+    await asyncio.sleep(duracao)
+
+    sala = gerenciador.expirar_tempo(codigo)
+    if sala is None:
+        return
+
+    await sio.emit("tempo_esgotado", {}, room=codigo)
+
+    if sala.status == "finalizada":
+        await _finalizar_e_notificar(sala)
+    else:
+        # Modo Normal: ainda falta alguém usar a tentativa final. Timeout de
+        # segurança pra sala não ficar esperando pra sempre.
+        _timers[codigo] = asyncio.create_task(_timer_tentativa_final(codigo))
+
+
+async def _timer_tentativa_final(codigo: str) -> None:
+    await asyncio.sleep(TIMER_TENTATIVA_FINAL_SEGUNDOS)
+
+    sala = gerenciador.forcar_fim_tentativa_final(codigo)
+    if sala is not None and sala.status == "finalizada":
+        await _finalizar_e_notificar(sala)
+
+
 @sio.event  # type: ignore[untyped-decorator]
 async def disconnect(sid: str) -> None:
     sala = gerenciador.remover_jogador(sid)
     if sala is None:
         return
+    _cancelar_timer(sala.codigo)
     for outro_sid in sala.jogadores:
         await sio.emit("oponente_saiu", {}, to=outro_sid)
 
@@ -44,12 +116,20 @@ async def criar_sala(sid: str, data: Any) -> None:
     try:
         payload = CriarSalaPayload.model_validate(data)
     except ValidationError:
-        await _erro(sid, "Nome inválido.")
+        await _erro(sid, "Nome ou modo inválido.")
         return
 
-    sala = gerenciador.criar_sala(sid, payload.nome)
+    sala = gerenciador.criar_sala(sid, payload.nome, payload.modo)
     await sio.enter_room(sid, sala.codigo)
-    await sio.emit("sala_criada", {"codigo": sala.codigo}, to=sid)
+    await sio.emit("sala_criada", {"codigo": sala.codigo, "modo": sala.modo.value}, to=sid)
+
+
+def _duracao_do_modo(modo: GameMode) -> int | None:
+    if modo == GameMode.normal:
+        return TIMER_NORMAL_SEGUNDOS
+    if modo == GameMode.hardcore:
+        return TIMER_HARDCORE_SEGUNDOS
+    return None
 
 
 @sio.event  # type: ignore[untyped-decorator]
@@ -75,13 +155,21 @@ async def entrar_sala(sid: str, data: Any) -> None:
         await sio.emit("aguardando_oponente", {}, to=sid)
         return
 
+    duracao = _duracao_do_modo(sala.modo)
     for jogador_sid in sala.jogadores:
         oponente = sala.outro_jogador(jogador_sid)
         await sio.emit(
             "partida_iniciada",
-            {"oponente": oponente.nome if oponente else "Oponente"},
+            {
+                "oponente": oponente.nome if oponente else "Oponente",
+                "modo": sala.modo.value,
+                "duracaoSegundos": duracao,
+            },
             to=jogador_sid,
         )
+
+    if duracao is not None:
+        _timers[sala.codigo] = asyncio.create_task(_timer_principal(sala.codigo, duracao))
 
 
 @sio.event  # type: ignore[untyped-decorator]
@@ -107,7 +195,7 @@ async def enviar_palpite(sid: str, data: Any) -> None:
         {
             "letras": tentativa.letras,
             "estados": tentativa.estados,
-            "tentativasRestantes": MAX_TENTATIVAS - len(jogador.tentativas),
+            "numeroTentativa": len(jogador.tentativas),
         },
         to=sid,
     )
@@ -121,12 +209,4 @@ async def enviar_palpite(sid: str, data: Any) -> None:
         )
 
     if sala.status == "finalizada":
-        for jogador_sid in sala.jogadores:
-            await sio.emit(
-                "fim_de_jogo",
-                {
-                    "resultado": sala.resultado_para(jogador_sid),
-                    "palavraSecreta": sala.palavra_secreta,
-                },
-                to=jogador_sid,
-            )
+        await _finalizar_e_notificar(sala)

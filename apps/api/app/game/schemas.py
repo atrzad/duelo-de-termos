@@ -1,8 +1,11 @@
 from pydantic import BaseModel, Field
 
+from app.game.modes import GameMode
+
 
 class CriarSalaPayload(BaseModel):
     nome: str = Field(min_length=1, max_length=24)
+    modo: GameMode
 
 
 class EntrarSalaPayload(BaseModel):
