@@ -567,6 +567,35 @@ Regra de concorrência:
 - Se dois palpites corretos chegarem quase juntos, somente o primeiro persistido deve ganhar.
 - Depois de definir `winner_player_id`, nenhuma outra tentativa pode mudar o resultado.
 
+### 9.4 Modo Infinito (fora do escopo original — pedido à parte em 2026-10-03)
+
+Não faz parte dos 3 modos desta seção; é uma adição posterior, pedida explicitamente pelo usuário
+("crie um modo infinito para 1v1 também"), implementada em `apps/api/app/game/modes.py` e
+`rooms.py`. Reaproveita a pontuação por rodada do Competitivo (6 tentativas, pontos = 7 -
+tentativas, sem timer), mas muda o que acontece quando a rodada termina:
+
+- A rodada concluída NUNCA finaliza a sala — soma os pontos da rodada ao placar acumulado de cada
+  jogador (`pontos_totais`), sorteia outra palavra e incrementa `rodada_atual`.
+- A sessão só termina de verdade quando um dos dois jogadores sai (desconecta) — não há limite de
+  rodadas nem botão de "encerrar sessão".
+- Evento `partida_iniciada` é reemitido pro cliente a cada rodada nova (carrega `rodada`,
+  `meuTotal`, `totalOponente`), reaproveitando o mesmo handler que já reseta o tabuleiro no início
+  da partida.
+
+Lacuna conhecida: como a sala nunca "finaliza" nesse modo (exceto por desconexão, que hoje não
+persiste — ver seção 14), sessões do modo Infinito não aparecem em `GET /partidas`. Só o placar ao
+vivo, visto pelos dois jogadores durante a sessão, existe — nada é salvo no histórico.
+
+### 9.5 Revanche direta (fora do escopo original — pedido à parte em 2026-10-03)
+
+Também fora da seção 9: depois que uma partida termina de verdade (Normal/Competitivo/Hardcore —
+não Infinito, que não tem esse momento), qualquer um dos dois pode pedir revanche
+(`pedir_revanche`, `apps/api/app/game/rooms.py`). Quando os DOIS pedem, a sala reinicia na hora:
+mesmo código, mesmos dois jogadores, mesmo modo, palavra nova, tudo zerado (incluindo
+`pontos_totais` se o modo fosse o Infinito antes de terminar por desconexão forçada em algum
+cenário futuro). Enquanto só um pediu, o outro recebe `revanche_pedida` e vê "X quer jogar de
+novo!" na tela de fim. Não cobre o caso `oponente_saiu` (não há pra quem pedir).
+
 ---
 
 ## 10. Máquina de estados
@@ -811,6 +840,18 @@ No MVP:
 4. O jogo pode aguardar até 30 segundos pela reconexão.
 5. Se o jogador não voltar, a rodada pode ser encerrada como abandono ou anulada. A regra precisa ficar configurável.
 6. O jogador reconectado deve receber um snapshot atualizado do estado que ele tem permissão para visualizar.
+
+**Implementado em 2026-10-03** (item 5 da Fase 5, pedido à parte): exatamente como especificado
+acima. `Jogador.token` (gerado com `secrets.token_urlsafe`) é o `player_id` estável; o cliente
+guarda `{token, codigo}` no `localStorage` (`apps/web/src/features/duel/sessao.ts`) e tenta
+`reconectar` sozinho ao montar a página, se achar uma sessão salva. No disconnect durante uma
+partida "jogando", o jogador NÃO é removido na hora — fica marcado (`desconectado_em`) por até
+`TIMER_RECONEXAO_SEGUNDOS` (30s, `apps/api/app/game/sockets.py`); se reconectar antes disso, o
+timeout é cancelado e o sid antigo é trocado pelo novo (mesmo Jogador, mesmas tentativas/pontos);
+se não, aí sim vira abandono definitivo (`oponente_saiu`). O snapshot do evento `reconectado` leva
+`duracaoSegundos` já como TEMPO RESTANTE (não a duração total — senão o cronômetro do cliente
+reiniciaria do zero). Fora do escopo: sala esperando o 2º jogador ou já finalizada não abre janela
+de reconexão (não faz sentido esperar por nada).
 
 ---
 
@@ -1110,26 +1151,30 @@ Objetivo: tornar a experiência robusta.
 
 > **Nota (2026-10-03):** "Salvar histórico" adiantado da Fase 3 (resultado
 > final de cada partida, não rodada a rodada — não há múltiplas rodadas por
-> partida ainda). "Testes E2E Playwright" foi usado bastante *durante* o
-> desenvolvimento desta sessão (2 navegadores reais, scripts `.mjs` ad hoc)
-> pra pegar bugs que os testes unitários não pegavam — mas não existe uma
-> suíte Playwright *commitada* no repo; cada verificação foi um script
-> temporário, rodado e descartado. Virar isso numa suíte de verdade (com
-> `@playwright/test`, CI, etc.) ainda não foi feito.
+> partida ainda, exceto no modo Infinito, que nem persiste, ver seção 9.4).
+> "Testes E2E Playwright" foi usado bastante *durante* o desenvolvimento
+> desta sessão (2 navegadores reais, scripts `.mjs` ad hoc) pra pegar bugs
+> que os testes unitários não pegavam — mas não existe uma suíte Playwright
+> *commitada* no repo; cada verificação foi um script temporário, rodado e
+> descartado. Virar isso numa suíte de verdade (com `@playwright/test`, CI,
+> etc.) ainda não foi feito. Reconexão, rate limiting e revanche direta
+> (esta fora do escopo original) foram implementados e testados de verdade
+> depois dessa nota (mesmo dia) — ver seção 14 (reconexão) e 9.4 (infinito).
 
 Tarefas:
 
 ```text
 [x] Salvar histórico de rodadas e palpites. (partidas terminadas; sem detalhe por palpite)
-[ ] Implementar reconexão.
-[ ] Implementar expiração de sala.
-[ ] Implementar tratamento de abandono. (desconexão notifica o oponente; sem reconexão)
+[x] Implementar reconexão. (token salvo no navegador, janela de 30s, snapshot completo -- seção 14)
+[ ] Implementar expiração de sala. (salas finalizadas ficam em memória indefinidamente)
+[x] Implementar tratamento de abandono. (desconexão abre janela de reconexão; expira -> oponente_saiu)
 [ ] Adicionar logs estruturados.
-[ ] Adicionar rate limiting.
+[x] Adicionar rate limiting. (enviar_palpite 0.3s, criar_sala 2s -- app/game/rate_limit.py)
 [x] Adicionar testes de integração. (2 clientes Socket.IO reais, inclusive com timers reais)
 [ ] Adicionar testes E2E Playwright. (usado ad hoc na sessão; sem suíte commitada)
 [ ] Melhorar acessibilidade.
 [ ] Revisar UI mobile.
+[x] Revanche direta. (fora do escopo original -- pedir_revanche reaproveita a mesma sala)
 ```
 
 Critério de aceite:

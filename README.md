@@ -16,7 +16,7 @@ notas dentro de cada fase no `PROJECT_SCOPE.md`).
 - `apps/web`: React + TypeScript + Vite + Tailwind.
   - **Modo infinito** (`/jogo`): sozinho, local, palavra aleatória a cada rodada (pool de ~90
     palavras em `features/game/words.ts`), sequência de acertos, teclado virtual+físico.
-  - **1v1** (`/duelo`): cria ou entra numa sala por código de 4 letras, escolhendo um dos 3 modos:
+  - **1v1** (`/duelo`): cria ou entra numa sala por código de 4 letras, escolhendo um dos 4 modos:
     - **Competitivo** — 6 tentativas cada, sem timer; pontos = `7 - tentativas` (quem acerta
       acertou continua podendo pontuar enquanto o oponente ainda joga).
     - **Hardcore** — 90s no relógio; o primeiro acerto válido encerra a partida na hora pra todo
@@ -24,18 +24,31 @@ notas dentro de cada fase no `PROJECT_SCOPE.md`).
     - **Normal** — 90s + prorrogação (tentativas extras ilimitadas enquanto o tempo não acaba) +
       exatamente 1 tentativa final pra quem não acertou quando o tempo esgota; pontuação por
       faixa de tentativa (seção 9.1 do `PROJECT_SCOPE.md`), com bônus pra quem acerta primeiro.
+    - **Infinito** (fora dos 3 modos da seção 9, pedido à parte — ver seção 9.4) — mesma
+      pontuação do Competitivo por rodada, mas a sala nunca finaliza sozinha: ao concluir, sorteia
+      outra palavra e soma ao placar acumulado da sessão. Só termina quando alguém sai.
   - Em todos: o oponente só vê a contagem de tentativas, nunca as letras.
-- **Testado de verdade**, não só por inspeção: 54 testes Pytest (unit + 8 de integração com 2
+  - **Reconexão de sessão** (seção 14 do `PROJECT_SCOPE.md`): um refresh de página ou queda de
+    conexão no meio de uma partida não perde a rodada. O cliente guarda um token por jogador no
+    `localStorage` e tenta reconectar sozinho ao montar a página; o servidor dá até 30s de janela
+    (`app/game/sockets.py`, `TIMER_RECONEXAO_SEGUNDOS`) antes de tratar como abandono definitivo.
+  - **Revanche direta** (seção 9.5, fora do escopo original): depois que uma partida termina,
+    qualquer um pode pedir pra jogar de novo com o mesmo oponente — quando os dois pedem, a mesma
+    sala reinicia (código, jogadores e modo iguais, placar zerado).
+- Rate limit no `enviar_palpite` (0.3s) e no `criar_sala` (2s) — `app/game/rate_limit.py`.
+- **Testado de verdade**, não só por inspeção: 79 testes Pytest (unit + 16 de integração com 2
   clientes Socket.IO reais, incluindo timers reais de 1s via monkeypatch — não mocka o
-  `asyncio.sleep`) + 26 testes Vitest + verificação manual com 2 navegadores reais (Playwright)
-  cobrindo os 3 modos, persistência via `GET /partidas`, e o estado "aguardando o oponente" de
-  quem já concluiu mas a partida continua.
+  `asyncio.sleep`, cobrindo inclusive desconexão/reconexão de verdade com 2 conexões Socket.IO
+  diferentes) + 26 testes Vitest + verificação manual com 2 navegadores reais (Playwright)
+  cobrindo os 4 modos, persistência via `GET /partidas`, reconexão depois de um reload de página
+  de verdade, e o fluxo completo de revanche (pedido → aviso ao oponente → aceite → rodada nova).
 
-> **Nota sobre cortes de escopo (2026-10-03):** mesmo com os 3 modos e persistência prontos,
-> ficou de fora (ver `PROJECT_SCOPE.md`, Fase 5): reconexão de sessão (um crash no meio de uma
-> partida perde aquela rodada), revanche direta, rate limiting, handshake explícito de "pronto"
-> (a partida começa sozinha quando o 2º jogador entra), e uma suíte Playwright commitada (foi
-> usado ad hoc durante o desenvolvimento, não ficou como teste permanente no repo).
+> **Nota sobre cortes de escopo (2026-10-03):** ficou de fora (ver `PROJECT_SCOPE.md`, Fase 5):
+> expiração de salas abandonadas (ficam em memória indefinidamente), logs estruturados, handshake
+> explícito de "pronto" (a partida começa sozinha quando o 2º jogador entra), e uma suíte
+> Playwright commitada (foi usado ad hoc durante o desenvolvimento, não ficou como teste
+> permanente no repo). Sessões do modo Infinito ainda não entram no histórico de `GET /partidas`
+> (ver seção 9.4) — só terminam por desconexão, e desconexão hoje não persiste nada.
 
 ## Estrutura
 

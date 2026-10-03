@@ -15,3 +15,7 @@ class EntrarSalaPayload(BaseModel):
 
 class EnviarPalpitePayload(BaseModel):
     palavra: str = Field(min_length=5, max_length=5, pattern=r"^[A-Za-z]+$")
+
+
+class ReconectarPayload(BaseModel):
+    token: str = Field(min_length=1, max_length=64)

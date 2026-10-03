@@ -1,7 +1,7 @@
 import pytest
 
 from app.game.modes import GameMode
-from app.game.rooms import GerenciadorDeSalas, SalaEmAndamentoError, SalaNaoEncontradaError
+from app.game.rooms import GerenciadorDeSalas, Sala, SalaEmAndamentoError, SalaNaoEncontradaError
 
 
 @pytest.fixture
@@ -101,7 +101,7 @@ class TestModoCompetitivo:
         assert sala.palavra_secreta is not None
         segredo = sala.palavra_secreta
 
-        sala_atualizada, _ = gerenciador.registrar_palpite("sid-1", segredo)
+        sala_atualizada, _, _, _ = gerenciador.registrar_palpite("sid-1", segredo)
 
         # Ana acertou de primeira, mas a sala continua em andamento: Beto
         # ainda pode jogar (diferente do Hardcore).
@@ -122,7 +122,7 @@ class TestModoCompetitivo:
         # Beto erra duas vezes e acerta na 3ª (4 pontos).
         gerenciador.registrar_palpite("sid-2", errado)
         gerenciador.registrar_palpite("sid-2", errado)
-        sala_final, _ = gerenciador.registrar_palpite("sid-2", segredo)
+        sala_final, _, _, _ = gerenciador.registrar_palpite("sid-2", segredo)
 
         assert sala_final.status == "finalizada"
         assert sala_final.resultado_para("sid-1") == "venceu"
@@ -138,10 +138,10 @@ class TestModoCompetitivo:
         errado = _palpite_errado(segredo)
 
         for _ in range(6):
-            sala_atualizada, _ = gerenciador.registrar_palpite("sid-1", errado)
+            sala_atualizada, _, _, _ = gerenciador.registrar_palpite("sid-1", errado)
         assert sala_atualizada.status == "jogando"  # Beto ainda não jogou
 
-        sala_final, _ = gerenciador.registrar_palpite("sid-2", segredo)
+        sala_final, _, _, _ = gerenciador.registrar_palpite("sid-2", segredo)
 
         assert sala_final.status == "finalizada"
         assert sala_final.jogadores["sid-1"].pontos == 0
@@ -159,7 +159,7 @@ class TestModoCompetitivo:
         gerenciador.registrar_palpite("sid-1", errado)
         gerenciador.registrar_palpite("sid-1", segredo)
         gerenciador.registrar_palpite("sid-2", errado)
-        sala_final, _ = gerenciador.registrar_palpite("sid-2", segredo)
+        sala_final, _, _, _ = gerenciador.registrar_palpite("sid-2", segredo)
 
         assert sala_final.jogadores["sid-1"].pontos == sala_final.jogadores["sid-2"].pontos
         assert sala_final.resultado_para("sid-1") == "empate"
@@ -174,7 +174,7 @@ class TestModoHardcore:
         gerenciador.entrar_sala("sid-2", "Beto", sala.codigo)
         assert sala.palavra_secreta is not None
 
-        sala_final, _ = gerenciador.registrar_palpite("sid-1", sala.palavra_secreta)
+        sala_final, _, _, _ = gerenciador.registrar_palpite("sid-1", sala.palavra_secreta)
 
         assert sala_final.status == "finalizada"
         assert sala_final.jogadores["sid-1"].pontos == 3
@@ -226,7 +226,7 @@ class TestModoNormal:
         gerenciador.entrar_sala("sid-2", "Beto", sala.codigo)
         assert sala.palavra_secreta is not None
 
-        sala_atualizada, _ = gerenciador.registrar_palpite("sid-1", sala.palavra_secreta)
+        sala_atualizada, _, _, _ = gerenciador.registrar_palpite("sid-1", sala.palavra_secreta)
 
         # Ana concluiu, mas a sala continua: Beto ainda não jogou.
         assert sala_atualizada.status == "jogando"
@@ -242,7 +242,7 @@ class TestModoNormal:
         errado = _palpite_errado(segredo)
 
         gerenciador.registrar_palpite("sid-1", segredo)  # Ana resolve
-        sala_atualizada, _ = gerenciador.registrar_palpite("sid-2", errado)  # Beto ainda joga
+        sala_atualizada, _, _, _ = gerenciador.registrar_palpite("sid-2", errado)  # Beto ainda joga
 
         assert sala_atualizada.status == "jogando"
 
@@ -257,7 +257,7 @@ class TestModoNormal:
 
         for _ in range(6):
             gerenciador.registrar_palpite("sid-1", errado)
-        sala_atualizada, _ = gerenciador.registrar_palpite("sid-1", segredo)  # 7ª tentativa
+        sala_atualizada, _, _, _ = gerenciador.registrar_palpite("sid-1", segredo)  # 7ª tentativa
 
         assert sala_atualizada.jogadores["sid-1"].pontos == 2  # 1 + bônus de primeiro
 
@@ -274,7 +274,7 @@ class TestModoNormal:
 
         # Tentativa final: acerta -> 1 ponto (+ bônus de primeiro, já que
         # ninguém mais tinha acertado ainda).
-        sala_atualizada, _ = gerenciador.registrar_palpite("sid-1", segredo)
+        sala_atualizada, _, _, _ = gerenciador.registrar_palpite("sid-1", segredo)
         assert sala_atualizada.jogadores["sid-1"].pontos == 2
 
         # Segunda tentativa depois do tempo: não é mais permitida.
@@ -283,7 +283,7 @@ class TestModoNormal:
 
         # Beto ainda não usou a tentativa final dele -> sala segue aberta.
         assert sala_atualizada.status == "jogando"
-        sala_final, _ = gerenciador.registrar_palpite("sid-2", errado)
+        sala_final, _, _, _ = gerenciador.registrar_palpite("sid-2", errado)
         assert sala_final.status == "finalizada"
         assert sala_final.jogadores["sid-2"].pontos == 0
 
@@ -300,3 +300,239 @@ class TestModoNormal:
         assert sala_final.status == "finalizada"
         assert sala_final.jogadores["sid-1"].pontos == 0
         assert sala_final.jogadores["sid-2"].pontos == 0
+
+
+class TestModoInfinito:
+    def test_rodada_avanca_sem_finalizar_a_sala(self, gerenciador: GerenciadorDeSalas) -> None:
+        sala = gerenciador.criar_sala("sid-1", "Ana", GameMode.infinito)
+        gerenciador.entrar_sala("sid-2", "Beto", sala.codigo)
+        assert sala.palavra_secreta is not None
+        segredo = sala.palavra_secreta
+        errado = _palpite_errado(segredo)
+
+        gerenciador.registrar_palpite("sid-1", segredo)  # Ana acerta de primeira: 6 pontos
+        for _ in range(6):
+            sala_atualizada, _, _, rodada_avancou = gerenciador.registrar_palpite("sid-2", errado)
+
+        # A última tentativa de Beto (6ª, esgotando as tentativas) é o que
+        # fecha a rodada -- os dois já tinham concluído.
+        assert rodada_avancou is True
+        assert sala_atualizada.status == "jogando"  # nunca finaliza sozinha
+        assert sala_atualizada.rodada_atual == 2
+        assert sala_atualizada.palavra_secreta is not None
+
+        # Placar da rodada 1 foi pro total; placar da rodada (novo) zerado.
+        ana = sala_atualizada.jogadores["sid-1"]
+        beto = sala_atualizada.jogadores["sid-2"]
+        assert ana.pontos_totais == 6  # 7 - 1 tentativa
+        assert ana.pontos == 0
+        assert beto.pontos_totais == 0
+        assert beto.pontos == 0
+
+        # Estado da rodada anterior não sobrevive.
+        assert ana.tentativas == []
+        assert beto.tentativas == []
+        assert ana.venceu is False
+        assert beto.esgotou_tentativas is False
+
+    def test_numero_da_tentativa_retornado_nao_e_afetado_pelo_reset_da_rodada(
+        self, gerenciador: GerenciadorDeSalas
+    ) -> None:
+        sala = gerenciador.criar_sala("sid-1", "Ana", GameMode.infinito)
+        gerenciador.entrar_sala("sid-2", "Beto", sala.codigo)
+        assert sala.palavra_secreta is not None
+        segredo = sala.palavra_secreta
+        errado = _palpite_errado(segredo)
+
+        gerenciador.registrar_palpite("sid-1", segredo)
+        for _ in range(5):
+            gerenciador.registrar_palpite("sid-2", errado)
+
+        # 6ª tentativa de Beto: fecha a rodada (reseta jogador.tentativas),
+        # mas o número retornado tem que refletir que foi a 6ª mesmo assim.
+        _, _, numero_tentativa, rodada_avancou = gerenciador.registrar_palpite("sid-2", errado)
+
+        assert rodada_avancou is True
+        assert numero_tentativa == 6
+
+    def test_pontuacao_acumula_entre_rodadas(self, gerenciador: GerenciadorDeSalas) -> None:
+        sala = gerenciador.criar_sala("sid-1", "Ana", GameMode.infinito)
+        gerenciador.entrar_sala("sid-2", "Beto", sala.codigo)
+
+        for _ in range(2):  # joga 2 rodadas completas
+            assert sala.palavra_secreta is not None
+            segredo = sala.palavra_secreta
+            errado = _palpite_errado(segredo)
+            gerenciador.registrar_palpite("sid-1", segredo)  # Ana: 6 pontos
+            for _ in range(6):
+                sala, *_ = gerenciador.registrar_palpite("sid-2", errado)  # Beto: 0 pontos
+
+        assert sala.jogadores["sid-1"].pontos_totais == 12  # 6 + 6
+        assert sala.jogadores["sid-2"].pontos_totais == 0
+        assert sala.rodada_atual == 3
+
+    def test_sair_no_meio_de_uma_sessao_infinita_finaliza_a_sala(
+        self, gerenciador: GerenciadorDeSalas
+    ) -> None:
+        sala = gerenciador.criar_sala("sid-1", "Ana", GameMode.infinito)
+        gerenciador.entrar_sala("sid-2", "Beto", sala.codigo)
+
+        sala_restante = gerenciador.remover_jogador("sid-2")
+
+        assert sala_restante is not None
+        assert sala_restante.status == "finalizada"
+
+
+class TestReconexao:
+    def test_marcar_desconectado_nao_remove_o_jogador(
+        self, gerenciador: GerenciadorDeSalas
+    ) -> None:
+        sala = gerenciador.criar_sala("sid-1", "Ana", GameMode.competitivo)
+        gerenciador.entrar_sala("sid-2", "Beto", sala.codigo)
+
+        sala_atualizada = gerenciador.marcar_desconectado("sid-1")
+
+        assert sala_atualizada is not None
+        assert "sid-1" in sala_atualizada.jogadores
+        assert sala_atualizada.jogadores["sid-1"].desconectado_em is not None
+        assert sala_atualizada.status == "jogando"  # não finaliza na hora
+
+    def test_reconectar_com_token_valido_troca_o_sid(
+        self, gerenciador: GerenciadorDeSalas
+    ) -> None:
+        sala = gerenciador.criar_sala("sid-1", "Ana", GameMode.competitivo)
+        gerenciador.entrar_sala("sid-2", "Beto", sala.codigo)
+        token_ana = sala.jogadores["sid-1"].token
+
+        gerenciador.marcar_desconectado("sid-1")
+        resultado = gerenciador.reconectar(token_ana, "sid-1-novo")
+
+        assert resultado is not None
+        sala_atualizada, jogador, sid_antigo = resultado
+        assert sid_antigo == "sid-1"
+        assert jogador.nome == "Ana"
+        assert jogador.sid == "sid-1-novo"
+        assert jogador.desconectado_em is None
+        assert "sid-1" not in sala_atualizada.jogadores
+        assert "sid-1-novo" in sala_atualizada.jogadores
+        assert gerenciador.sala_do_jogador("sid-1-novo") is sala_atualizada
+        assert gerenciador.sala_do_jogador("sid-1") is None
+
+    def test_reconectar_preserva_tentativas_e_pontos(
+        self, gerenciador: GerenciadorDeSalas
+    ) -> None:
+        sala = gerenciador.criar_sala("sid-1", "Ana", GameMode.competitivo)
+        gerenciador.entrar_sala("sid-2", "Beto", sala.codigo)
+        assert sala.palavra_secreta is not None
+        token_ana = sala.jogadores["sid-1"].token
+        errado = _palpite_errado(sala.palavra_secreta)
+
+        gerenciador.registrar_palpite("sid-1", errado)
+        gerenciador.marcar_desconectado("sid-1")
+        _, jogador, _ = gerenciador.reconectar(token_ana, "sid-1-novo")  # type: ignore[misc]
+
+        assert len(jogador.tentativas) == 1
+        assert jogador.tentativas[0].letras == list(errado)
+
+    def test_reconectar_com_token_invalido_retorna_none(
+        self, gerenciador: GerenciadorDeSalas
+    ) -> None:
+        sala = gerenciador.criar_sala("sid-1", "Ana", GameMode.competitivo)
+        gerenciador.entrar_sala("sid-2", "Beto", sala.codigo)
+
+        assert gerenciador.reconectar("token-que-nao-existe", "sid-novo") is None
+
+    def test_remover_se_ainda_desconectado_remove_depois_do_timeout(
+        self, gerenciador: GerenciadorDeSalas
+    ) -> None:
+        sala = gerenciador.criar_sala("sid-1", "Ana", GameMode.competitivo)
+        gerenciador.entrar_sala("sid-2", "Beto", sala.codigo)
+        gerenciador.marcar_desconectado("sid-1")
+
+        sala_restante = gerenciador.remover_se_ainda_desconectado("sid-1")
+
+        assert sala_restante is not None
+        assert "sid-1" not in sala_restante.jogadores
+        assert sala_restante.status == "finalizada"
+
+    def test_remover_se_ainda_desconectado_e_noop_se_ja_reconectou(
+        self, gerenciador: GerenciadorDeSalas
+    ) -> None:
+        sala = gerenciador.criar_sala("sid-1", "Ana", GameMode.competitivo)
+        gerenciador.entrar_sala("sid-2", "Beto", sala.codigo)
+        token_ana = sala.jogadores["sid-1"].token
+
+        gerenciador.marcar_desconectado("sid-1")
+        gerenciador.reconectar(token_ana, "sid-1-novo")
+
+        # Timeout chega depois, mas pelo sid ANTIGO -- já não existe mais.
+        resultado = gerenciador.remover_se_ainda_desconectado("sid-1")
+
+        assert resultado is None
+        sala_ainda_ativa = gerenciador.sala_do_jogador("sid-1-novo")
+        assert sala_ainda_ativa is not None
+        assert "sid-1-novo" in sala_ainda_ativa.jogadores
+
+
+class TestRevanche:
+    def _jogar_ate_terminar(self, gerenciador: GerenciadorDeSalas, sala: Sala) -> None:
+        assert sala.palavra_secreta is not None
+        errado = _palpite_errado(sala.palavra_secreta)
+        gerenciador.registrar_palpite("sid-1", sala.palavra_secreta)
+        for _ in range(6):
+            gerenciador.registrar_palpite("sid-2", errado)
+
+    def test_um_pedido_so_nao_reinicia_a_partida(self, gerenciador: GerenciadorDeSalas) -> None:
+        sala = gerenciador.criar_sala("sid-1", "Ana", GameMode.competitivo)
+        gerenciador.entrar_sala("sid-2", "Beto", sala.codigo)
+        self._jogar_ate_terminar(gerenciador, sala)
+        assert sala.status == "finalizada"
+
+        sala_atualizada, os_dois_pediram = gerenciador.pedir_revanche("sid-1")
+
+        assert os_dois_pediram is False
+        assert sala_atualizada.status == "finalizada"
+
+    def test_os_dois_pedindo_reinicia_a_mesma_sala(self, gerenciador: GerenciadorDeSalas) -> None:
+        sala = gerenciador.criar_sala("sid-1", "Ana", GameMode.competitivo)
+        gerenciador.entrar_sala("sid-2", "Beto", sala.codigo)
+        self._jogar_ate_terminar(gerenciador, sala)
+        palavra_antiga = sala.palavra_secreta
+
+        gerenciador.pedir_revanche("sid-1")
+        sala_atualizada, os_dois_pediram = gerenciador.pedir_revanche("sid-2")
+
+        assert os_dois_pediram is True
+        assert sala_atualizada.codigo == sala.codigo
+        assert sala_atualizada.status == "jogando"
+        assert sala_atualizada.jogadores["sid-1"].nome == "Ana"
+        assert sala_atualizada.jogadores["sid-2"].nome == "Beto"
+        assert sala_atualizada.jogadores["sid-1"].pontos == 0
+        assert sala_atualizada.jogadores["sid-1"].tentativas == []
+        assert sala_atualizada.jogadores["sid-1"].venceu is False
+        assert sala_atualizada.palavra_secreta is not None
+        del palavra_antiga  # só documentando que a palavra pode (ou não) mudar
+
+    def test_pedir_revanche_antes_da_partida_terminar_da_erro(
+        self, gerenciador: GerenciadorDeSalas
+    ) -> None:
+        sala = gerenciador.criar_sala("sid-1", "Ana", GameMode.competitivo)
+        gerenciador.entrar_sala("sid-2", "Beto", sala.codigo)
+
+        with pytest.raises(SalaEmAndamentoError):
+            gerenciador.pedir_revanche("sid-1")
+
+    def test_revanche_zera_o_placar_acumulado_do_infinito(
+        self, gerenciador: GerenciadorDeSalas
+    ) -> None:
+        sala = gerenciador.criar_sala("sid-1", "Ana", GameMode.infinito)
+        gerenciador.entrar_sala("sid-2", "Beto", sala.codigo)
+        sala.jogadores["sid-1"].pontos_totais = 42  # simula sessão já jogada
+        sala.status = "finalizada"  # só termina por desconexão, forçado aqui pro teste
+
+        gerenciador.pedir_revanche("sid-1")
+        sala_atualizada, os_dois_pediram = gerenciador.pedir_revanche("sid-2")
+
+        assert os_dois_pediram is True
+        assert sala_atualizada.jogadores["sid-1"].pontos_totais == 0
+        assert sala_atualizada.rodada_atual == 1

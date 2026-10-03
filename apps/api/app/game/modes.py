@@ -13,6 +13,12 @@ class GameMode(enum.StrEnum):
     normal = "normal"
     competitivo = "competitivo"
     hardcore = "hardcore"
+    # Não é um dos 3 modos da seção 9 do PROJECT_SCOPE.md — pedido à parte do
+    # usuário. Reaproveita a pontuação por rodada do Competitivo (6
+    # tentativas, pontos = 7-tentativas, sem timer), mas a sala nunca
+    # "finaliza" sozinha: ao concluir uma rodada sorteia outra palavra e
+    # acumula o placar, até alguém sair.
+    infinito = "infinito"
 
 
 TENTATIVAS_REGULARES = 6

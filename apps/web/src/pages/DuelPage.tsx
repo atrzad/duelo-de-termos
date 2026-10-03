@@ -42,11 +42,18 @@ export function DuelPage() {
     pontosOponente,
     mensagemErro,
     oponenteSaiu,
+    oponenteDesconectadoTemporariamente,
+    euPediRevanche,
+    oponentePediuRevanche,
+    rodada,
+    meuTotal,
+    totalOponente,
     criarSala,
     entrarSala,
     addLetter,
     removeLetter,
     enviarPalpite,
+    pedirRevanche,
     reiniciar,
   } = useDuel()
 
@@ -172,6 +179,12 @@ export function DuelPage() {
         </div>
       )}
 
+      {fase === 'reconectando' && (
+        <div className="grid gap-3 rounded-lg border-2 border-tile-border-filled bg-surface p-6 text-center">
+          <p className="text-sm text-fg-muted">Reconectando à sua partida…</p>
+        </div>
+      )}
+
       {fase === 'aguardando' && codigo && (
         <div className="grid gap-3 rounded-lg border-2 border-tile-border-filled bg-surface p-6 text-center">
           <p className="text-sm text-fg-muted">Código da sala</p>
@@ -187,6 +200,20 @@ export function DuelPage() {
 
       {fase === 'jogando' && (
         <>
+          {oponenteDesconectadoTemporariamente && (
+            <p
+              role="status"
+              className="rounded-md bg-tile-present p-2 text-center text-sm font-bold text-tile-fg"
+            >
+              {nomeOponente ?? 'Oponente'} desconectou. Esperando reconectar…
+            </p>
+          )}
+          {modo === 'infinito' && (
+            <p className="text-center text-sm font-semibold text-fg-muted">
+              Rodada {rodada} · Você <strong>{meuTotal}</strong> x <strong>{totalOponente}</strong>{' '}
+              {nomeOponente ?? 'Oponente'}
+            </p>
+          )}
           {tempoEsgotado && modo === 'normal' && !euConclui && (
             <p
               role="status"
@@ -226,7 +253,16 @@ export function DuelPage() {
       {fase === 'fim' && (
         <div className="grid gap-3 rounded-lg border-2 border-tile-border-filled bg-surface p-4 text-center">
           {oponenteSaiu ? (
-            <p className="text-lg font-bold">O oponente saiu da partida.</p>
+            <>
+              <p className="text-lg font-bold">O oponente saiu da partida.</p>
+              {modo === 'infinito' && (
+                <p className="text-sm text-fg-muted">
+                  Placar final da sessão: <strong>{meuTotal}</strong> x{' '}
+                  <strong>{totalOponente}</strong>, em {rodada} rodada
+                  {rodada !== 1 ? 's' : ''}.
+                </p>
+              )}
+            </>
           ) : (
             <>
               <p className="text-lg font-bold">
@@ -241,11 +277,28 @@ export function DuelPage() {
                   A palavra era <strong className="uppercase">{palavraSecreta}</strong>.
                 </p>
               )}
+              {oponentePediuRevanche && !euPediRevanche && (
+                <p className="text-sm font-semibold text-tile-border-filled">
+                  {nomeOponente ?? 'Oponente'} quer jogar de novo!
+                </p>
+              )}
             </>
           )}
-          <button type="button" onClick={reiniciar} className="btn-primary mx-auto">
-            Voltar pro lobby
-          </button>
+          <div className="flex flex-col items-center gap-2">
+            {!oponenteSaiu && (
+              <button
+                type="button"
+                onClick={pedirRevanche}
+                disabled={euPediRevanche}
+                className="btn-primary mx-auto disabled:opacity-60"
+              >
+                {euPediRevanche ? 'Aguardando o oponente…' : 'Jogar de novo'}
+              </button>
+            )}
+            <button type="button" onClick={reiniciar} className="btn-secondary mx-auto">
+              Voltar pro lobby
+            </button>
+          </div>
         </div>
       )}
     </main>

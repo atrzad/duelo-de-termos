@@ -64,6 +64,10 @@ class ClienteDeTeste:
             "tempo_esgotado",
             "fim_de_jogo",
             "oponente_saiu",
+            "oponente_desconectado_temporariamente",
+            "oponente_reconectou",
+            "reconectado",
+            "revanche_pedida",
             "erro",
         ):
             self.sio.on(nome_evento, self._handler(nome_evento))
@@ -140,11 +144,15 @@ async def test_duelo_competitivo_ate_vitoria_sem_vazar_letras_do_oponente(
         assert dados == {"tentativasUsadas": 1}  # nunca letras/estados do oponente
 
         # Competitivo: Ana venceu, mas Beto AINDA PODE jogar — diferente do
-        # Hardcore, onde o primeiro acerto encerraria tudo na hora.
+        # Hardcore, onde o primeiro acerto encerraria tudo na hora. Espera
+        # entre os palpites pra respeitar o rate limit do servidor (0.3s) —
+        # um cliente real nunca digita uma palavra de 5 letras mais rápido
+        # que isso de qualquer forma.
         errado = "ZZZZZ" if segredo != "ZZZZZ" else "XXXXX"
         for _ in range(6):
             await beto.sio.emit("enviar_palpite", {"palavra": errado})
             await beto.proximo_evento()  # resultado_palpite
+            await asyncio.sleep(0.35)
 
         dados_fim_ana = await ana.aguardar("fim_de_jogo")
         dados_fim_beto = await beto.aguardar("fim_de_jogo")
@@ -152,6 +160,73 @@ async def test_duelo_competitivo_ate_vitoria_sem_vazar_letras_do_oponente(
         assert dados_fim_ana["meusPontos"] == 6  # acertou na 1ª tentativa
         assert dados_fim_beto["resultado"] == "perdeu"
         assert dados_fim_beto["meusPontos"] == 0  # esgotou as 6 sem acertar
+    finally:
+        await ana.desconectar()
+        await beto.desconectar()
+
+
+@pytest.mark.asyncio
+async def test_duelo_infinito_avanca_rodada_e_acumula_placar_sem_terminar(
+    servidor_de_teste: None,
+) -> None:
+    ana = ClienteDeTeste()
+    beto = ClienteDeTeste()
+    try:
+        await ana.conectar()
+        await beto.conectar()
+
+        await ana.sio.emit("criar_sala", {"nome": "Ana", "modo": "infinito"})
+        _, dados = await ana.proximo_evento()
+        assert dados["modo"] == "infinito"
+        codigo = dados["codigo"]
+
+        await beto.sio.emit("entrar_sala", {"nome": "Beto", "codigo": codigo})
+        dados_ana_inicio = await ana.aguardar("partida_iniciada")
+        dados_beto_inicio = await beto.aguardar("partida_iniciada")
+        assert dados_ana_inicio["duracaoSegundos"] is None  # Infinito não tem timer
+        assert dados_ana_inicio["rodada"] == 1
+        assert dados_ana_inicio["meuTotal"] == 0
+        assert dados_beto_inicio["totalOponente"] == 0
+
+        sala = gerenciador._salas.get(codigo)
+        assert sala is not None
+        segredo = sala.palavra_secreta
+        assert segredo is not None
+        errado = "ZZZZZ" if segredo != "ZZZZZ" else "XXXXX"
+
+        await ana.sio.emit("enviar_palpite", {"palavra": segredo})
+        await ana.aguardar("resultado_palpite")  # Ana acerta de primeira: 6 pontos
+
+        for _ in range(5):
+            await beto.sio.emit("enviar_palpite", {"palavra": errado})
+            await beto.aguardar("resultado_palpite")
+            await asyncio.sleep(0.35)
+
+        # 6ª tentativa de Beto fecha a rodada 1 -> servidor sorteia outra
+        # palavra e reemite partida_iniciada pros dois, com o placar somado.
+        await beto.sio.emit("enviar_palpite", {"palavra": errado})
+        dados_ana_rodada2 = await ana.aguardar("partida_iniciada")
+        dados_beto_rodada2 = await beto.aguardar("partida_iniciada")
+
+        assert dados_ana_rodada2["rodada"] == 2
+        assert dados_ana_rodada2["meuTotal"] == 6
+        assert dados_ana_rodada2["totalOponente"] == 0
+        assert dados_beto_rodada2["rodada"] == 2
+        assert dados_beto_rodada2["meuTotal"] == 0
+        assert dados_beto_rodada2["totalOponente"] == 6
+
+        # A sala continua "jogando" pra sempre (até alguém sair) -- nenhum
+        # fim_de_jogo foi emitido pra essa rodada.
+        sala_depois = gerenciador._salas.get(codigo)
+        assert sala_depois is not None
+        assert sala_depois.status == "jogando"
+
+        # Jogar a segunda rodada: palavra nova, tentativas zeradas.
+        segredo2 = sala_depois.palavra_secreta
+        assert segredo2 is not None
+        await ana.sio.emit("enviar_palpite", {"palavra": segredo2})
+        dados_resultado = await ana.aguardar("resultado_palpite")
+        assert dados_resultado["numeroTentativa"] == 1  # não é a 7ª, é a 1ª da rodada 2
     finally:
         await ana.desconectar()
         await beto.desconectar()
@@ -186,6 +261,61 @@ async def test_duelo_hardcore_primeiro_acerto_vence_na_hora(servidor_de_teste: N
         assert fim_ana["meusPontos"] == 3
         assert fim_beto["resultado"] == "perdeu"
         assert fim_beto["meusPontos"] == 0
+    finally:
+        await ana.desconectar()
+        await beto.desconectar()
+
+
+@pytest.mark.asyncio
+async def test_revanche_direta_reinicia_a_mesma_sala(servidor_de_teste: None) -> None:
+    ana = ClienteDeTeste()
+    beto = ClienteDeTeste()
+    try:
+        await ana.conectar()
+        await beto.conectar()
+
+        await ana.sio.emit("criar_sala", {"nome": "Ana", "modo": "hardcore"})
+        _, dados = await ana.proximo_evento()
+        codigo = dados["codigo"]
+
+        await beto.sio.emit("entrar_sala", {"nome": "Beto", "codigo": codigo})
+        await ana.aguardar("partida_iniciada")
+        await beto.aguardar("partida_iniciada")
+
+        sala = gerenciador._salas.get(codigo)
+        assert sala is not None and sala.palavra_secreta is not None
+        segredo_rodada_1 = sala.palavra_secreta
+
+        await ana.sio.emit("enviar_palpite", {"palavra": segredo_rodada_1})
+        await ana.aguardar("fim_de_jogo")
+        await beto.aguardar("fim_de_jogo")
+
+        # Ana pede revanche primeiro -- Beto ainda não pediu, então a sala
+        # continua "finalizada" e só o Beto é avisado do pedido.
+        await ana.sio.emit("pedir_revanche", {})
+        dados_pedido = await beto.aguardar("revanche_pedida")
+        assert dados_pedido == {}
+        assert sala.status == "finalizada"
+
+        # Beto aceita (pede também) -- os dois recebem partida_iniciada de
+        # novo, na MESMA sala.
+        await beto.sio.emit("pedir_revanche", {})
+        dados_ana_2 = await ana.aguardar("partida_iniciada")
+        dados_beto_2 = await beto.aguardar("partida_iniciada")
+        assert dados_ana_2["codigo"] == codigo
+        assert dados_beto_2["codigo"] == codigo
+
+        sala_rodada_2 = gerenciador._salas.get(codigo)
+        assert sala_rodada_2 is not None
+        assert sala_rodada_2.status == "jogando"
+
+        # Jogável de verdade: manda um palpite na rodada nova (espera o
+        # cooldown do rate limit -- o último palpite da Ana foi há pouco).
+        assert sala_rodada_2.palavra_secreta is not None
+        await asyncio.sleep(0.35)
+        await ana.sio.emit("enviar_palpite", {"palavra": sala_rodada_2.palavra_secreta})
+        dados_fim_ana_2 = await ana.aguardar("fim_de_jogo")
+        assert dados_fim_ana_2["resultado"] == "venceu"
     finally:
         await ana.desconectar()
         await beto.desconectar()
@@ -278,6 +408,43 @@ async def test_duelo_normal_prorrogacao_e_tentativa_final_de_verdade(
 
 
 @pytest.mark.asyncio
+async def test_rate_limit_bloqueia_palpites_em_sequencia_rapida_demais(
+    servidor_de_teste: None,
+) -> None:
+    ana = ClienteDeTeste()
+    beto = ClienteDeTeste()
+    try:
+        await ana.conectar()
+        await beto.conectar()
+
+        await ana.sio.emit("criar_sala", {"nome": "Ana", "modo": "competitivo"})
+        _, dados = await ana.proximo_evento()
+        codigo = dados["codigo"]
+
+        await beto.sio.emit("entrar_sala", {"nome": "Beto", "codigo": codigo})
+        await ana.aguardar("partida_iniciada")
+        await beto.aguardar("partida_iniciada")
+
+        await ana.sio.emit("enviar_palpite", {"palavra": "ABCDF"})
+        await ana.aguardar("resultado_palpite")
+
+        # Manda outro palpite na sequência, sem esperar o cooldown (0.3s).
+        await ana.sio.emit("enviar_palpite", {"palavra": "GHIJK"})
+        evento, dados_erro = await ana.proximo_evento()
+        assert evento == "erro"
+        assert "mensagem" in dados_erro
+
+        # Depois de esperar o cooldown passar, volta a funcionar normalmente.
+        await asyncio.sleep(0.35)
+        await ana.sio.emit("enviar_palpite", {"palavra": "GHIJK"})
+        evento, _ = await ana.proximo_evento()
+        assert evento == "resultado_palpite"
+    finally:
+        await ana.desconectar()
+        await beto.desconectar()
+
+
+@pytest.mark.asyncio
 async def test_palpite_invalido_retorna_erro_amigavel(servidor_de_teste: None) -> None:
     cliente = ClienteDeTeste()
     try:
@@ -340,8 +507,111 @@ async def test_desconexao_avisa_o_oponente(servidor_de_teste: None) -> None:
 
         await ana.sio.disconnect()
 
+        # Partida "jogando": não é abandono na hora -- abre uma janela de
+        # reconexão (seção 14 do PROJECT_SCOPE.md). oponente_saiu só depois
+        # que a janela esgotar sem a Ana voltar (ver teste à parte, com
+        # timeout curto via monkeypatch).
         evento, _ = await beto.proximo_evento()
-        assert evento == "oponente_saiu"
+        assert evento == "oponente_desconectado_temporariamente"
+    finally:
+        await ana.desconectar()
+        await beto.desconectar()
+
+
+@pytest.mark.asyncio
+async def test_reconexao_recupera_o_estado_e_avisa_o_oponente(
+    servidor_de_teste: None,
+) -> None:
+    ana = ClienteDeTeste()
+    beto = ClienteDeTeste()
+    try:
+        await ana.conectar()
+        await beto.conectar()
+
+        await ana.sio.emit("criar_sala", {"nome": "Ana", "modo": "competitivo"})
+        _, dados_sala = await ana.proximo_evento()
+        codigo = dados_sala["codigo"]
+
+        await beto.sio.emit("entrar_sala", {"nome": "Beto", "codigo": codigo})
+        dados_ana_inicio = await ana.aguardar("partida_iniciada")
+        await beto.aguardar("partida_iniciada")
+        token_ana = dados_ana_inicio["meuToken"]
+
+        sala = gerenciador._salas.get(codigo)
+        assert sala is not None
+        segredo = sala.palavra_secreta
+        assert segredo is not None
+        errado = "ZZZZZ" if segredo != "ZZZZZ" else "XXXXX"
+
+        await ana.sio.emit("enviar_palpite", {"palavra": errado})
+        await ana.aguardar("resultado_palpite")
+        await beto.aguardar("oponente_jogou")
+
+        await ana.sio.disconnect()
+        await beto.aguardar("oponente_desconectado_temporariamente")
+
+        # Reconecta com um socket NOVO (sid novo), mas o mesmo token.
+        await ana.sio.connect(URL_TESTE)
+        await ana.sio.emit("reconectar", {"token": token_ana})
+
+        dados_reconexao = await ana.aguardar("reconectado")
+        assert dados_reconexao["oponente"] == "Beto"
+        assert dados_reconexao["modo"] == "competitivo"
+        assert len(dados_reconexao["minhasTentativas"]) == 1
+        assert dados_reconexao["minhasTentativas"][0]["letras"] == list(errado)
+        assert dados_reconexao["euConclui"] is False
+
+        await beto.aguardar("oponente_reconectou")
+
+        # A sessão continua jogável depois de reconectar.
+        await ana.sio.emit("enviar_palpite", {"palavra": errado})
+        dados_resultado = await ana.aguardar("resultado_palpite")
+        assert dados_resultado["numeroTentativa"] == 2
+    finally:
+        await ana.desconectar()
+        await beto.desconectar()
+
+
+@pytest.mark.asyncio
+async def test_token_invalido_na_reconexao_da_erro(servidor_de_teste: None) -> None:
+    ana = ClienteDeTeste()
+    try:
+        await ana.conectar()
+        await ana.sio.emit("reconectar", {"token": "token-que-nao-existe"})
+
+        evento, dados = await ana.proximo_evento()
+        assert evento == "erro"
+        assert "mensagem" in dados
+    finally:
+        await ana.desconectar()
+
+
+@pytest.mark.asyncio
+async def test_sem_reconectar_a_tempo_oponente_saiu_de_verdade(
+    servidor_de_teste: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(sockets_module, "TIMER_RECONEXAO_SEGUNDOS", 1)
+
+    ana = ClienteDeTeste()
+    beto = ClienteDeTeste()
+    try:
+        await ana.conectar()
+        await beto.conectar()
+
+        await ana.sio.emit("criar_sala", {"nome": "Ana", "modo": "competitivo"})
+        _, dados_sala = await ana.proximo_evento()
+        codigo = dados_sala["codigo"]
+
+        await beto.sio.emit("entrar_sala", {"nome": "Beto", "codigo": codigo})
+        await ana.aguardar("partida_iniciada")
+        await beto.aguardar("partida_iniciada")
+
+        await ana.sio.disconnect()
+        await beto.aguardar("oponente_desconectado_temporariamente")
+
+        # Não reconecta -- espera a janela (1s, monkeypatchada) esgotar.
+        dados_saiu = await beto.aguardar("oponente_saiu", timeout=3.0)
+        assert dados_saiu == {}
     finally:
         await ana.desconectar()
         await beto.desconectar()
