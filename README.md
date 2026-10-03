@@ -5,14 +5,18 @@ O escopo completo, as regras dos modos e as fases estão em [PROJECT_SCOPE.md](P
 
 ## Status
 
-**Fase 0 concluída + base da Fase 1.**
+**Fase 0 e Fase 1 concluídas.**
 
-- `apps/api`: FastAPI com `GET /health` → `{"status":"ok"}`, configuração por `.env` e CORS.
-- `apps/web`: React + TypeScript + Vite + Tailwind, com tela inicial e tabuleiro 6×5 estático
-  (`/jogo`) mais um indicador do status da API.
+- `apps/api`: FastAPI com `GET /health` → `{"status":"ok"}`, configuração por `.env` e CORS. Em
+  produção também serve o build do frontend (ver "Deploy" abaixo).
+- `apps/web`: React + TypeScript + Vite + Tailwind. Dá pra jogar uma rodada completa, sozinho e
+  localmente, em `/jogo`: teclado virtual + físico, `evaluateGuess()` puro com tratamento de
+  letras repetidas, cores no tabuleiro e no teclado, mensagens de erro amigáveis (palpite
+  incompleto) e tela de vitória/derrota com "Jogar de novo".
 
-Ainda **não** existem: Socket.IO, banco, salas, identidade, timer, teclado virtual e regras de
-avaliação de palpites.
+Ainda **não** existem: Socket.IO, banco, salas, identidade, timer e motor de regras no backend —
+a palavra secreta é fixa e a avaliação roda no cliente só até a Fase 2 trocar isso pelo servidor
+(ver `PROJECT_SCOPE.md`).
 
 ## Estrutura
 
@@ -30,7 +34,7 @@ duelo-de-termos/
 │           ├── app/            # roteamento, providers, QueryClient
 │           ├── pages/          # HomePage, GamePage, NotFoundPage
 │           ├── components/     # GameBoard, GuessRow, LetterTile, TileLegend, ServerStatus
-│           ├── features/game/  # helpers de apresentação do tabuleiro
+│           ├── features/game/  # evaluateGuess() puro, estado do jogo, apresentação do tabuleiro
 │           ├── services/       # cliente HTTP (api.ts)
 │           ├── hooks/          # useApiHealth
 │           ├── types/          # tipos do jogo
@@ -119,9 +123,10 @@ variáveis.
 
 - **Monorepo sem workspaces.** `apps/api` e `apps/web` têm dependências independentes (venv e
   `node_modules`). Um orquestrador só entra se surgir necessidade real.
-- **Backend como autoridade.** O frontend só exibe estados (`correct`, `present`, `absent`)
-  recebidos do servidor. As linhas coloridas em `/jogo` são dados fixos de demonstração, sem
-  avaliação no cliente.
+- **Backend como autoridade (a partir da Fase 2).** Na Fase 1, sem rede, `evaluateGuess()` roda
+  no cliente contra uma palavra fixa temporária (`TERMO`, em `useGameState.ts`) só pra validar a
+  mecânica. A partir da Fase 2 o servidor passa a decidir a palavra e avaliar os palpites; o
+  frontend volta a só exibir os estados (`correct`, `present`, `absent`) recebidos por rede.
 - **Acessibilidade das letras.** Cada célula tem `aria-label` com letra e estado. O estado
   `present` também tem uma borda tracejada interna, para não depender só da cor.
 - **Tema.** As cores ficam como CSS variables em `styles/index.css` e são expostas ao Tailwind
@@ -133,7 +138,29 @@ variáveis.
 - **React Router 8 + TanStack Query.** O Query já está configurado (hoje só consulta
   `/health`) para servir de base às leituras HTTP das próximas fases.
 
+## Deploy
+
+No ar em `https://duelo-de-termos.tail9ff58.ts.net` (Tailscale Funnel), seguindo o mesmo padrão
+dos outros projetos pessoais (`ayo-std`, `ayo-sketchbook`): um container Tailscale próprio
+(`deploy/tailscale/`, chave e estado locais, nunca versionados) expõe a porta 3500, onde roda o
+serviço systemd de usuário `deploy/duelo-de-termos.service` (`uvicorn app.main:app --port 3500`,
+com `linger` habilitado — sobrevive a reboot/logout).
+
+Em produção a própria API serve o frontend: `apps/api/app/main.py` monta `apps/web/dist/` como
+estático (com fallback pra `index.html` em qualquer rota, pra o React Router funcionar) quando
+essa pasta existe. `.env.production` (versionado, sem segredo) zera `VITE_API_URL` no build pra
+ficar relativo, já que front e API dividem a mesma origem.
+
+Pra atualizar o jogo no ar depois de mudar código:
+
+```bash
+cd apps/web && npm run build
+systemctl --user restart duelo-de-termos.service
+```
+
+O container Tailscale não precisa ser tocado de novo — ele só aponta pra porta 3500.
+
 ## Próximo passo
 
-Concluir a Fase 1: teclado virtual e físico, palavra temporária fixa, `evaluateGuess()` puro
-com testes de letras repetidas e tela de vitória/derrota local.
+Fase 2: motor de regras no backend (domínio oficial do jogo, ainda sem Socket.IO) — ver
+`PROJECT_SCOPE.md`.

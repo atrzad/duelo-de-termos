@@ -964,18 +964,18 @@ Objetivo: validar UI e regras básicas sem rede.
 Tarefas:
 
 ```text
-[ ] Criar React + TypeScript + Vite.
-[ ] Configurar Tailwind.
-[ ] Criar tela inicial.
-[ ] Criar tabuleiro de seis linhas por cinco colunas.
-[ ] Criar teclado virtual.
-[ ] Aceitar teclado físico.
-[ ] Criar palavra secreta temporária fixa.
-[ ] Implementar evaluateGuess() como função pura.
-[ ] Implementar cores das letras.
-[ ] Tratar letras repetidas.
-[ ] Criar testes Vitest do algoritmo.
-[ ] Criar tela de vitória e derrota local.
+[x] Criar React + TypeScript + Vite.
+[x] Configurar Tailwind.
+[x] Criar tela inicial.
+[x] Criar tabuleiro de seis linhas por cinco colunas.
+[x] Criar teclado virtual.
+[x] Aceitar teclado físico.
+[x] Criar palavra secreta temporária fixa.
+[x] Implementar evaluateGuess() como função pura.
+[x] Implementar cores das letras.
+[x] Tratar letras repetidas.
+[x] Criar testes Vitest do algoritmo.
+[x] Criar tela de vitória e derrota local.
 ```
 
 Critério de aceite:

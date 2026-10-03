@@ -1,31 +1,52 @@
+import { useEffect } from 'react'
 import { Link } from 'react-router'
 
 import { GameBoard } from '../components/GameBoard'
+import { GameStatusBanner } from '../components/GameStatusBanner'
+import { Keyboard } from '../components/Keyboard'
 import { TileLegend } from '../components/TileLegend'
-import { buildBoard } from '../features/game/board'
-import type { BoardRow } from '../types/game'
-
-// Linhas de demonstração apenas visuais. Nas próximas fases o tabuleiro
-// será montado com os resultados oficiais recebidos do backend.
-const demoRows: BoardRow[] = [
-  [
-    { letter: 'R', state: 'present' },
-    { letter: 'A', state: 'present' },
-    { letter: 'R', state: 'correct' },
-    { letter: 'A', state: 'absent' },
-    { letter: 'S', state: 'absent' },
-  ],
-  [
-    { letter: 'T', state: 'filled' },
-    { letter: 'E', state: 'filled' },
-  ],
-]
-
-const board = buildBoard(demoRows)
+import { buildBoard, toBoardRows } from '../features/game/board'
+import { useGameState } from '../features/game/useGameState'
 
 export function GamePage() {
+  const {
+    currentGuess,
+    submittedGuesses,
+    status,
+    message,
+    secretWord,
+    keyStates,
+    addLetter,
+    removeLetter,
+    submitGuess,
+    resetGame,
+  } = useGameState()
+
+  // Teclado físico: só liga quando a rodada está em andamento (os handlers do
+  // hook já se protegem sozinhos, mas nem registrar o listener é mais simples).
+  useEffect(() => {
+    if (status !== 'playing') return
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Enter') {
+        submitGuess()
+      } else if (event.key === 'Backspace') {
+        removeLetter()
+      } else if (/^[a-zA-Z]$/.test(event.key)) {
+        addLetter(event.key)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [status, addLetter, removeLetter, submitGuess])
+
+  const board = buildBoard(toBoardRows(submittedGuesses, currentGuess))
+
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-8 px-4 py-6">
+    <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-6 px-4 py-6">
       <header className="flex items-center justify-between gap-4">
         <Link to="/" className="text-sm font-semibold underline underline-offset-4">
           ← Início
@@ -35,6 +56,21 @@ export function GamePage() {
       </header>
 
       <GameBoard rows={board} />
+
+      <p role="status" aria-live="polite" className="h-5 text-center text-sm text-danger">
+        {message}
+      </p>
+
+      {status === 'playing' ? (
+        <Keyboard
+          keyStates={keyStates}
+          onLetter={addLetter}
+          onEnter={submitGuess}
+          onBackspace={removeLetter}
+        />
+      ) : (
+        <GameStatusBanner status={status} secretWord={secretWord} onRestart={resetGame} />
+      )}
 
       <section aria-labelledby="legend-title" className="grid gap-3">
         <h2
