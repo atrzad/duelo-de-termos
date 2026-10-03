@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import socketio
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -7,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.router import api_router
 from app.core.config import get_settings
+from app.game.sockets import sio
 
 # apps/web/dist — build de produção do frontend. Só existe depois de `npm run build`;
 # em dev (uvicorn --reload sem build) a pasta não existe e o mount abaixo é pulado.
@@ -41,3 +43,7 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
+
+# uvicorn serve este, não `app` direto: envolve a FastAPI com o servidor
+# Socket.IO (monta em /socket.io, delega todo o resto pra `app`).
+socket_app = socketio.ASGIApp(sio, other_asgi_app=app)

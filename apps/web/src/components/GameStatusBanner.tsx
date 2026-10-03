@@ -1,10 +1,11 @@
 interface GameStatusBannerProps {
   status: 'won' | 'lost'
   secretWord: string
+  streak: number
   onRestart: () => void
 }
 
-export function GameStatusBanner({ status, secretWord, onRestart }: GameStatusBannerProps) {
+export function GameStatusBanner({ status, secretWord, streak, onRestart }: GameStatusBannerProps) {
   const venceu = status === 'won'
 
   return (
@@ -17,8 +18,11 @@ export function GameStatusBanner({ status, secretWord, onRestart }: GameStatusBa
       <p className="text-sm text-fg-muted">
         A palavra era <strong className="uppercase">{secretWord}</strong>.
       </p>
+      <p className="text-sm text-fg-muted">
+        Sequência atual: <strong>{streak}</strong>
+      </p>
       <button type="button" onClick={onRestart} className="btn-primary mx-auto">
-        Jogar de novo
+        Próxima palavra
       </button>
     </div>
   )

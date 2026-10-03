@@ -1,9 +1,15 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { GamePage } from './GamePage'
+
+// Fixa a palavra sorteada pra cada teste ficar determinístico (sem isso o
+// modo infinito sorteia uma palavra nova a cada montagem do componente).
+vi.mock('../features/game/words', () => ({
+  palavraAleatoria: () => 'TERMO',
+}))
 
 async function digitarPalpite(usuario: ReturnType<typeof userEvent.setup>, palavra: string) {
   await usuario.keyboard(`${palavra}{Enter}`)
@@ -22,14 +28,14 @@ describe('GamePage', () => {
     const usuario = userEvent.setup()
     renderizarPagina()
 
-    // TERMO é a palavra secreta fixa da Fase 1; ABCDF não tem nenhuma letra em comum.
+    // TERMO é a palavra secreta mockada; ABCDF não tem nenhuma letra em comum.
     await digitarPalpite(usuario, 'ABCDF')
 
     expect(screen.getByRole('gridcell', { name: 'A, ausente na palavra' })).toBeInTheDocument()
     expect(screen.getByRole('gridcell', { name: 'F, ausente na palavra' })).toBeInTheDocument()
   })
 
-  it('declara vitória ao acertar a palavra e permite jogar de novo', async () => {
+  it('declara vitória ao acertar a palavra, soma a sequência e permite jogar a próxima', async () => {
     const usuario = userEvent.setup()
     renderizarPagina()
 
@@ -37,8 +43,9 @@ describe('GamePage', () => {
 
     expect(await screen.findByText('Você venceu!')).toBeInTheDocument()
     expect(screen.getByText('TERMO')).toBeInTheDocument()
+    expect(screen.getByLabelText('Sequência: 1')).toBeInTheDocument()
 
-    await usuario.click(screen.getByRole('button', { name: 'Jogar de novo' }))
+    await usuario.click(screen.getByRole('button', { name: 'Próxima palavra' }))
 
     expect(screen.queryByText('Você venceu!')).not.toBeInTheDocument()
     expect(screen.getByRole('group', { name: 'Teclado virtual' })).toBeInTheDocument()
@@ -53,7 +60,7 @@ describe('GamePage', () => {
     expect(await screen.findByText('Palavra incompleta.')).toBeInTheDocument()
   })
 
-  it('declara derrota depois de seis tentativas erradas e revela a palavra', async () => {
+  it('declara derrota depois de seis tentativas erradas, revela a palavra e zera a sequência', async () => {
     const usuario = userEvent.setup()
     renderizarPagina()
 
@@ -63,5 +70,6 @@ describe('GamePage', () => {
 
     expect(await screen.findByText('Você perdeu.')).toBeInTheDocument()
     expect(screen.getByText('TERMO')).toBeInTheDocument()
+    expect(screen.getByText('Sequência atual:')).toBeInTheDocument()
   })
 })

@@ -7,7 +7,7 @@ StartLimitBurst=5
 [Service]
 Type=simple
 WorkingDirectory=%h/Projects/duelo-de-termos/apps/api
-ExecStart=%h/Projects/duelo-de-termos/apps/api/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 3500
+ExecStart=%h/Projects/duelo-de-termos/apps/api/.venv/bin/uvicorn app.main:socket_app --host 127.0.0.1 --port 3500
 Restart=always
 RestartSec=3
 NoNewPrivileges=yes

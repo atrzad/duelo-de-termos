@@ -13,21 +13,15 @@ export function HomePage() {
       </header>
 
       <div className="grid gap-3">
-        <button type="button" disabled className="btn-primary">
-          Criar sala
-        </button>
-        <button type="button" disabled className="btn-secondary">
-          Entrar com código
-        </button>
-        <p className="text-center text-sm text-fg-muted">
-          Salas e partidas em tempo real chegam nas próximas fases.
-        </p>
+        <Link to="/duelo" className="btn-primary">
+          Jogar 1v1
+        </Link>
+        <Link to="/jogo" className="btn-secondary">
+          Modo infinito (solo)
+        </Link>
       </div>
 
       <footer className="grid justify-items-center gap-4">
-        <Link to="/jogo" className="font-semibold underline underline-offset-4">
-          Ver o tabuleiro
-        </Link>
         <ServerStatus />
       </footer>
     </main>

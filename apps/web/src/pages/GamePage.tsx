@@ -16,6 +16,7 @@ export function GamePage() {
     message,
     secretWord,
     keyStates,
+    streak,
     addLetter,
     removeLetter,
     submitGuess,
@@ -51,8 +52,13 @@ export function GamePage() {
         <Link to="/" className="text-sm font-semibold underline underline-offset-4">
           ← Início
         </Link>
-        <h1 className="text-lg font-bold">Duelo de Termos</h1>
-        <span className="w-12" aria-hidden="true" />
+        <h1 className="text-lg font-bold">Modo infinito</h1>
+        <span
+          className="w-12 text-right text-sm text-fg-muted"
+          aria-label={`Sequência: ${String(streak)}`}
+        >
+          🔥{streak}
+        </span>
       </header>
 
       <GameBoard rows={board} />
@@ -69,7 +75,12 @@ export function GamePage() {
           onBackspace={removeLetter}
         />
       ) : (
-        <GameStatusBanner status={status} secretWord={secretWord} onRestart={resetGame} />
+        <GameStatusBanner
+          status={status}
+          secretWord={secretWord}
+          streak={streak}
+          onRestart={resetGame}
+        />
       )}
 
       <section aria-labelledby="legend-title" className="grid gap-3">

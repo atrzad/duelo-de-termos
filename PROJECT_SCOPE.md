@@ -988,20 +988,25 @@ Uma pessoa consegue jogar localmente no navegador, com avaliação correta de le
 
 Objetivo: criar o domínio oficial do jogo sem Socket.IO.
 
+> **Nota (2026-10-03):** cortado rápido a pedido do usuário, comprimido com as
+> Fases 3 e 4 — ver nota no início da Fase 4. Entregue: motor de regras single-mode
+> (sem GameMode/Normal/Competitivo/Hardcore, sem classes Round/PlayerRoundState
+> formais — ver `Sala`/`Jogador`/`Tentativa` em `app/game/rooms.py`).
+
 Tarefas:
 
 ```text
-[ ] Criar FastAPI.
-[ ] Criar GET /health.
-[ ] Configurar Pydantic.
-[ ] Criar catálogo inicial de palavras em português.
-[ ] Implementar normalização de palavras.
-[ ] Implementar validação de palpite.
-[ ] Implementar avaliação de letras.
+[x] Criar FastAPI.
+[x] Criar GET /health.
+[x] Configurar Pydantic.
+[x] Criar catálogo inicial de palavras em português.
+[ ] Implementar normalização de palavras. (só .upper(); sem tratar acento)
+[x] Implementar validação de palpite.
+[x] Implementar avaliação de letras.
 [ ] Criar GameMode.
 [ ] Criar Round, PlayerRoundState e GuessResult.
 [ ] Implementar regras de Normal, Competitivo e Hardcore.
-[ ] Criar testes Pytest completos do domínio.
+[x] Criar testes Pytest completos do domínio. (do modo único que existe)
 ```
 
 Critério de aceite:
@@ -1010,9 +1015,16 @@ Critério de aceite:
 O backend consegue executar regras dos três modos sem interface, com testes automatizados.
 ```
 
+**Não atingido como escrito** — só 1 modo existe, não 3.
+
 ### Fase 3 — Salas e identidade simples
 
 Objetivo: permitir que dois jogadores entrem na mesma sala.
+
+> **Nota (2026-10-03):** sem persistência (tudo em memória, um processo só —
+> cai se o servidor reiniciar no meio de uma partida). Eventos Socket.IO em
+> português (`criar_sala`/`entrar_sala`/`enviar_palpite`), não no namespace
+> `room:*`/`guess:*` descrito abaixo — mesma ideia, nomes diferentes.
 
 Tarefas:
 
@@ -1020,16 +1032,16 @@ Tarefas:
 [ ] Configurar SQLite e SQLAlchemy.
 [ ] Criar migrações Alembic.
 [ ] Criar Player.
-[ ] Criar Room e RoomPlayer.
-[ ] Criar geração segura de código de sala.
-[ ] Criar identidade anônima persistida.
+[ ] Criar Room e RoomPlayer. (equivalente em memória: Sala/Jogador)
+[x] Criar geração segura de código de sala. (secrets, não random)
+[ ] Criar identidade anônima persistida. (nome é só da conexão, não persiste)
 [ ] Criar endpoints HTTP de leitura.
-[ ] Configurar Socket.IO.
-[ ] Implementar room:create.
-[ ] Implementar room:join.
-[ ] Impedir terceiro jogador.
-[ ] Implementar room:ready.
-[ ] Sincronizar room:state.
+[x] Configurar Socket.IO.
+[x] Implementar room:create. (criar_sala)
+[x] Implementar room:join. (entrar_sala)
+[x] Impedir terceiro jogador.
+[ ] Implementar room:ready. (a partida começa sozinha quando o 2º entra)
+[ ] Sincronizar room:state. (eventos pontuais, não um estado sincronizado)
 ```
 
 Critério de aceite:
@@ -1038,25 +1050,36 @@ Critério de aceite:
 Duas abas de navegador conseguem entrar na mesma sala e marcar-se como prontas.
 ```
 
+**Parcialmente atingido**: as duas abas entram na mesma sala de verdade (testado com 2 browsers reais via Playwright) e a partida começa sozinha — só não existe o passo explícito de "pronto".
+
 ### Fase 4 — Partida em tempo real
 
 Objetivo: criar uma partida 1v1 funcional.
+
+> **Nota (2026-10-03):** o critério de aceite desta fase — "dois dispositivos
+> disputam uma partida completa em tempo real" — **foi atingido e testado de
+> verdade** (2 contextos de navegador reais via Playwright, não só simulação
+> Python): sala por código, corrida simultânea, resultado só pra quem jogou,
+> progresso do oponente sem vazar letra nenhuma (testado explicitamente nos
+> dois níveis), fim por vitória/derrota/empate, palavra revelada só no fim.
+> Sem timer, sem placar/múltiplas rodadas, sem os 3 modos, sem revanche —
+> cortado deliberadamente pelo prazo.
 
 Tarefas:
 
 ```text
 [ ] Criar Match e Round no banco.
-[ ] Implementar início de rodada.
+[ ] Implementar início de rodada. (não há "rodada" separada da partida)
 [ ] Implementar timer no backend.
-[ ] Implementar guess:submit.
-[ ] Emitir guess:result apenas para quem enviou.
-[ ] Emitir opponent:progress sem vazar letras.
+[x] Implementar guess:submit. (enviar_palpite)
+[x] Emitir guess:result apenas para quem enviou.
+[x] Emitir opponent:progress sem vazar letras.
 [ ] Implementar placar.
-[ ] Implementar fim de rodada.
-[ ] Revelar palavra somente ao final.
+[x] Implementar fim de rodada.
+[x] Revelar palavra somente ao final.
 [ ] Implementar os três modos.
-[ ] Implementar tela de resultado.
-[ ] Implementar revanche.
+[x] Implementar tela de resultado.
+[ ] Implementar revanche. ("voltar pro lobby" existe; revanche direta não)
 ```
 
 Critério de aceite:
@@ -1064,6 +1087,8 @@ Critério de aceite:
 ```text
 Dois dispositivos conseguem disputar uma partida completa em tempo real.
 ```
+
+**Atingido e testado de verdade** (ver nota acima).
 
 ### Fase 5 — Qualidade, persistência e reconexão
 

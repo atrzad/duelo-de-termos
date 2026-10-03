@@ -1,0 +1,111 @@
+/**
+ * Pool de palavras de 5 letras (sem acento) pro modo infinito, sorteada
+ * localmente a cada rodada. Mesma lista existe em apps/api/app/game/words.py
+ * pro 1v1 (lá o sorteio é no servidor, nunca revelado ao cliente); manter as
+ * duas em sincronia é dívida técnica consciente — não há um ponto único de
+ * verdade ainda porque o modo infinito continua 100% local (Fase 1).
+ */
+export const PALAVRAS: readonly string[] = [
+  'TERMO',
+  'PRATO',
+  'CARRO',
+  'LIVRO',
+  'BANCO',
+  'CAMPO',
+  'FESTA',
+  'MUNDO',
+  'PORTA',
+  'VIDRO',
+  'TEMPO',
+  'GRUPO',
+  'CARTA',
+  'CORPO',
+  'MORTE',
+  'NOITE',
+  'FONTE',
+  'LENTE',
+  'FRUTA',
+  'PEIXE',
+  'LEITE',
+  'BARCO',
+  'TIGRE',
+  'GRAVE',
+  'FRASE',
+  'CLIMA',
+  'TECLA',
+  'VALOR',
+  'HONRA',
+  'CULPA',
+  'SONHO',
+  'TOQUE',
+  'FOLHA',
+  'CHUVA',
+  'PEDRA',
+  'AREIA',
+  'VERME',
+  'NAVIO',
+  'BARRO',
+  'FIBRA',
+  'GESSO',
+  'LINHA',
+  'MANGA',
+  'SALTO',
+  'PONTE',
+  'FORNO',
+  'MOEDA',
+  'PALCO',
+  'TORRE',
+  'FOLGA',
+  'GRAMA',
+  'CARGO',
+  'SURTO',
+  'MOLHO',
+  'CESTO',
+  'PONTO',
+  'FORTE',
+  'BRISA',
+  'PRESA',
+  'FELIZ',
+  'VERDE',
+  'PRETO',
+  'SUAVE',
+  'NOBRE',
+  'LIVRE',
+  'BREVE',
+  'JOVEM',
+  'MACIO',
+  'RIGOR',
+  'VAPOR',
+  'MOTOR',
+  'SETOR',
+  'FATOR',
+  'LITRO',
+  'METRO',
+  'VENTO',
+  'PESCA',
+  'TEXTO',
+  'PACTO',
+  'FATIA',
+  'BOLHA',
+  'GALHO',
+  'OUTRO',
+  'RURAL',
+  'LOCAL',
+  'FINAL',
+  'IDEAL',
+  'METAL',
+  'SINAL',
+  'CANAL',
+]
+
+export function palavraAleatoria(excluir?: string): string {
+  if (PALAVRAS.length <= 1) return PALAVRAS[0] ?? 'TERMO'
+
+  let escolhida: string
+  do {
+    const indice = Math.floor(Math.random() * PALAVRAS.length)
+    escolhida = PALAVRAS[indice] ?? 'TERMO'
+  } while (escolhida === excluir)
+
+  return escolhida
+}

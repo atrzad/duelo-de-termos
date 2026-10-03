@@ -7,12 +7,15 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
     "pydantic-settings>=2.4",
+    "python-socketio>=5.11",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8",
+    "pytest-asyncio>=0.24",
     "httpx2",
+    "python-socketio[asyncio_client]>=5.11",
     "ruff>=0.6",
     "mypy>=1.11",
 ]
@@ -37,3 +40,7 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 [tool.mypy]
 strict = true
 plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = "socketio.*"
+ignore_missing_imports = true

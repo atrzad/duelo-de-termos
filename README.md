@@ -5,18 +5,27 @@ O escopo completo, as regras dos modos e as fases estão em [PROJECT_SCOPE.md](P
 
 ## Status
 
-**Fase 0 e Fase 1 concluídas.**
+**Fase 0 e Fase 1 completas; Fases 2-4 cortadas rápido (ver nota abaixo e PROJECT_SCOPE.md).**
 
-- `apps/api`: FastAPI com `GET /health` → `{"status":"ok"}`, configuração por `.env` e CORS. Em
-  produção também serve o build do frontend (ver "Deploy" abaixo).
-- `apps/web`: React + TypeScript + Vite + Tailwind. Dá pra jogar uma rodada completa, sozinho e
-  localmente, em `/jogo`: teclado virtual + físico, `evaluateGuess()` puro com tratamento de
-  letras repetidas, cores no tabuleiro e no teclado, mensagens de erro amigáveis (palpite
-  incompleto) e tela de vitória/derrota com "Jogar de novo".
+- `apps/api`: FastAPI com `GET /health`, CORS, e Socket.IO (`python-socketio`, montado via
+  `socketio.ASGIApp` — ver "Rodando em desenvolvimento"). Em produção também serve o build do
+  frontend (ver "Deploy"). Motor de regras (`app/game/rules.py`) e salas 1v1 em memória
+  (`app/game/rooms.py`) com testes Pytest, incluindo 4 testes de integração que sobem o servidor
+  de verdade e conectam dois clientes Socket.IO reais.
+- `apps/web`: React + TypeScript + Vite + Tailwind.
+  - **Modo infinito** (`/jogo`): sozinho, local, palavra aleatória a cada rodada (pool de ~90
+    palavras em `features/game/words.ts`), sequência de acertos, teclado virtual+físico.
+  - **1v1** (`/duelo`): cria ou entra numa sala por código de 4 letras, corrida simultânea contra
+    outra pessoa em tempo real — quem acerta primeiro vence. O oponente só vê quantas tentativas
+    você já usou, nunca as letras.
 
-Ainda **não** existem: Socket.IO, banco, salas, identidade, timer e motor de regras no backend —
-a palavra secreta é fixa e a avaliação roda no cliente só até a Fase 2 trocar isso pelo servidor
-(ver `PROJECT_SCOPE.md`).
+> **Nota sobre o corte de escopo (2026-10-03):** a pedido do usuário ("1v1 pronto rápido"), as
+> Fases 2, 3 e 4 do `PROJECT_SCOPE.md` foram comprimidas numa entrega mínima e **testada de
+> verdade** (dois navegadores reais via Playwright, não só simulação), mas deliberadamente sem:
+> persistência (tudo cai se o processo reiniciar no meio de uma partida), os 3 modos
+> (Normal/Competitivo/Hardcore — só existe um modo), timer, placar/múltiplas rodadas, revanche
+> direta, e handshake explícito de "pronto" (a partida começa sozinha quando o 2º jogador entra).
+> Ver as notas dentro de cada fase no `PROJECT_SCOPE.md` pra saber exatamente o que falta.
 
 ## Estrutura
 
@@ -25,16 +34,18 @@ duelo-de-termos/
 ├── apps/
 │   ├── api/                    # FastAPI (Python 3.12+)
 │   │   ├── app/
-│   │   │   ├── main.py         # create_app(): CORS + rotas
+│   │   │   ├── main.py         # create_app() + socket_app (uvicorn serve este)
 │   │   │   ├── core/config.py  # Settings (pydantic-settings, prefixo API_)
-│   │   │   └── api/            # router.py, health.py
-│   │   └── tests/
+│   │   │   ├── api/            # router.py, health.py
+│   │   │   └── game/           # rules.py, words.py, rooms.py, schemas.py, sockets.py (1v1)
+│   │   └── tests/               # unit (rules/rooms) + integração (2 clientes Socket.IO reais)
 │   └── web/                    # React + TypeScript + Vite
 │       └── src/
 │           ├── app/            # roteamento, providers, QueryClient
-│           ├── pages/          # HomePage, GamePage, NotFoundPage
-│           ├── components/     # GameBoard, GuessRow, LetterTile, TileLegend, ServerStatus
-│           ├── features/game/  # evaluateGuess() puro, estado do jogo, apresentação do tabuleiro
+│           ├── pages/          # HomePage, GamePage (infinito), DuelPage (1v1), NotFoundPage
+│           ├── components/     # GameBoard, Keyboard, GameStatusBanner, OpponentProgress...
+│           ├── features/game/  # evaluateGuess(), words.ts, useGameState, apresentação do tabuleiro
+│           ├── features/duel/  # useDuel (hook), socket.ts (cliente Socket.IO), types.ts
 │           ├── services/       # cliente HTTP (api.ts)
 │           ├── hooks/          # useApiHealth
 │           ├── types/          # tipos do jogo
@@ -76,9 +87,9 @@ cd ../..
 Use dois terminais.
 
 ```bash
-# Terminal 1: API em http://localhost:8000 (docs em /docs)
+# Terminal 1: API + Socket.IO em http://localhost:8000 (docs em /docs)
 cd apps/api
-.venv/bin/uvicorn app.main:app --reload --port 8000
+.venv/bin/uvicorn app.main:socket_app --reload --port 8000
 ```
 
 ```bash
@@ -137,14 +148,35 @@ variáveis.
   FastAPI com `httpx2`, que o Starlette atual recomenda no lugar do `httpx`.
 - **React Router 8 + TanStack Query.** O Query já está configurado (hoje só consulta
   `/health`) para servir de base às leituras HTTP das próximas fases.
+- **Socket.IO, não WebSocket puro.** Escolha já estava no `PROJECT_SCOPE.md` (salas prontas,
+  fallback automático pra polling). `python-socketio` não tem stubs de tipo — ver
+  `[[tool.mypy.overrides]]` pro módulo em `pyproject.toml`, e `# type: ignore[untyped-decorator]`
+  nos handlers de `app/game/sockets.py` (o erro aparece na linha do `@sio.event`, não na da
+  função — se mover o ignore pra linha errada, o mypy acusa "unused ignore").
+- **CORS do Socket.IO é `"*"`, não a lista de origens da API.** Achado testando com navegador de
+  verdade (Playwright): em produção front+API dividem a origem (`127.0.0.1:3500`), mas o handshake
+  do WebSocket ainda manda `Origin`, e isso não batia com `API_CORS_ORIGINS` (pensado pro Vite dev
+  em `:5173`). Sem cookies/sessão no handshake (identidade = nome + código de sala), `"*"` aqui não
+  abre superfície de ataque nova — mas é o tipo de bug que só aparece testando num browser real,
+  não só com cliente Python ou Testing Library.
+- **Salas do 1v1 em memória, não banco.** Dict Python num singleton (`app/game/rooms.py`); morre
+  se o servidor reiniciar no meio de uma partida. Decisão consciente pelo prazo, não esquecimento.
+- **Código de sala com `secrets`, não `random`.** É o único controle de acesso à sala — precisa
+  ser imprevisível.
+- **React 19 deprecou `FormEvent`/`FormEventHandler` genéricos.** Use `SubmitEvent<T>` (de
+  `'react'`) pra `onSubmit`; `FormEvent` ainda existe mas o lint (`@typescript-eslint/no-deprecated`)
+  acusa.
+- **`react-hooks/refs` proíbe mutar `ref.current` durante a renderização** (mesmo fora de JSX,
+  tipo `meuRef.current = valor` solto no corpo do componente/hook). Precisa estar dentro de
+  `useEffect` — ver `useDuel.ts`.
 
 ## Deploy
 
 No ar em `https://duelo-de-termos.tail9ff58.ts.net` (Tailscale Funnel), seguindo o mesmo padrão
 dos outros projetos pessoais (`ayo-std`, `ayo-sketchbook`): um container Tailscale próprio
 (`deploy/tailscale/`, chave e estado locais, nunca versionados) expõe a porta 3500, onde roda o
-serviço systemd de usuário `deploy/duelo-de-termos.service` (`uvicorn app.main:app --port 3500`,
-com `linger` habilitado — sobrevive a reboot/logout).
+serviço systemd de usuário `deploy/duelo-de-termos.service` (`uvicorn app.main:socket_app --port
+3500`, com `linger` habilitado — sobrevive a reboot/logout).
 
 Em produção a própria API serve o frontend: `apps/api/app/main.py` monta `apps/web/dist/` como
 estático (com fallback pra `index.html` em qualquer rota, pra o React Router funcionar) quando
@@ -162,5 +194,12 @@ O container Tailscale não precisa ser tocado de novo — ele só aponta pra por
 
 ## Próximo passo
 
-Fase 2: motor de regras no backend (domínio oficial do jogo, ainda sem Socket.IO) — ver
-`PROJECT_SCOPE.md`.
+O essencial das Fases 2-4 está no ar e testado (ver "Status"). O que falta, em ordem razoável de
+prioridade caso o usuário queira continuar depois do corte rápido:
+
+1. Persistência mínima (SQLite) pra salas sobreviverem a um restart do servidor.
+2. Revanche direta (hoje só existe "voltar pro lobby", que perde o código da sala).
+3. Timer por rodada e placar (hoje é melhor-de-uma-rodada, sem cronômetro).
+4. Os três modos (Normal/Competitivo/Hardcore) — hoje só existe um conjunto de regras.
+
+Ver as notas dentro de cada fase no `PROJECT_SCOPE.md` pra detalhes exatos do que ficou de fora.
