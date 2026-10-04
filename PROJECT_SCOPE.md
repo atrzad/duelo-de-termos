@@ -807,6 +807,15 @@ O jogo deve mostrar:
 - Rodada encerrada.
 - Palavra revelada apenas após o fim.
 
+> **Implementado em 2026-10-03** (pedido à parte): "Erro de palavra inválida" já estava
+> antecipado nesta lista desde o início, mas não tinha sido feito -- agora todo palpite passa por
+> um dicionário (~18 mil palavras de 5 letras, gerado do hunspell pt_BR via `unmunch`, arquivo
+> duplicado em `apps/api/app/game/data/` e `apps/web/src/features/game/data/`); palpite que não
+> existe mostra "Essa palavra não existe." e NÃO consome a tentativa, nos dois modos (solo e 1v1).
+> Também foi adicionado cursor clicável: clicar num quadrado da linha em digitação move o cursor
+> pra lá, e a próxima letra digitada sobrescreve aquela posição em vez de só acrescentar no final
+> (`apps/web/src/features/game/guessCursor.ts`, usado tanto no solo quanto no 1v1).
+
 ---
 
 ## 14. Segurança e integridade

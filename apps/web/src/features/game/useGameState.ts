@@ -2,7 +2,15 @@ import { useCallback, useMemo, useState } from 'react'
 
 import type { LetterState, SubmittedGuess } from '../../types/game'
 import { evaluateGuess } from './evaluateGuess'
+import {
+  apagarNoCursor,
+  escreverNoCursor,
+  fixarCursor,
+  guessEstaCompleto,
+  palpiteVazio,
+} from './guessCursor'
 import { mesclarEstadosDoTeclado } from './keyStates'
+import { palavraEValida } from './palavrasValidas'
 import { palavraAleatoria } from './words'
 
 export const WORD_LENGTH = 5
@@ -11,7 +19,11 @@ export const MAX_ATTEMPTS = 6
 export type GameStatus = 'playing' | 'won' | 'lost'
 
 export interface GameState {
-  currentGuess: string
+  /** Array de WORD_LENGTH posições ('' = ainda vazia) -- não uma string,
+   * porque o cursor pode ser movido pra qualquer quadrado (ver cursor). */
+  currentGuess: string[]
+  /** Posição do quadrado selecionado na linha em digitação. */
+  cursor: number
   submittedGuesses: SubmittedGuess[]
   status: GameStatus
   message: string | null
@@ -24,6 +36,7 @@ export interface GameState {
 export interface GameActions {
   addLetter: (letter: string) => void
   removeLetter: () => void
+  selectPosition: (indice: number) => void
   submitGuess: () => void
   resetGame: () => void
 }
@@ -31,33 +44,51 @@ export interface GameActions {
 export function useGameState(): GameState & GameActions {
   // Modo infinito: cada rodada sorteia uma palavra nova (ver features/game/words.ts).
   const [secretWord, setSecretWord] = useState(() => palavraAleatoria())
-  const [currentGuess, setCurrentGuess] = useState('')
+  const [currentGuess, setCurrentGuess] = useState<string[]>(() => palpiteVazio(WORD_LENGTH))
+  const [cursor, setCursor] = useState(0)
   const [submittedGuesses, setSubmittedGuesses] = useState<SubmittedGuess[]>([])
   const [status, setStatus] = useState<GameStatus>('playing')
   const [message, setMessage] = useState<string | null>(null)
   const [streak, setStreak] = useState(0)
 
-  const addLetter = useCallback((letter: string) => {
-    if (!/^[a-zA-Z]$/.test(letter)) return
-    setMessage(null)
-    setCurrentGuess((atual) => (atual.length < WORD_LENGTH ? atual + letter.toUpperCase() : atual))
-  }, [])
+  const addLetter = useCallback(
+    (letter: string) => {
+      if (!/^[a-zA-Z]$/.test(letter)) return
+      setMessage(null)
+      const resultado = escreverNoCursor(currentGuess, cursor, letter.toUpperCase())
+      setCurrentGuess(resultado.guess)
+      setCursor(resultado.cursor)
+    },
+    [currentGuess, cursor],
+  )
 
   const removeLetter = useCallback(() => {
     setMessage(null)
-    setCurrentGuess((atual) => atual.slice(0, -1))
+    const resultado = apagarNoCursor(currentGuess, cursor)
+    setCurrentGuess(resultado.guess)
+    setCursor(resultado.cursor)
+  }, [currentGuess, cursor])
+
+  const selectPosition = useCallback((indice: number) => {
+    setCursor(fixarCursor(indice, WORD_LENGTH))
   }, [])
 
   const submitGuess = useCallback(() => {
     setCurrentGuess((atual) => {
-      if (atual.length < WORD_LENGTH) {
+      if (!guessEstaCompleto(atual)) {
         setMessage('Palavra incompleta.')
         return atual
       }
 
-      const states = evaluateGuess(atual, secretWord)
-      const guess: SubmittedGuess = { letters: atual.split(''), states }
-      const acertou = atual === secretWord
+      const palavra = atual.join('')
+      if (!palavraEValida(palavra)) {
+        setMessage('Essa palavra não existe.')
+        return atual
+      }
+
+      const states = evaluateGuess(palavra, secretWord)
+      const guess: SubmittedGuess = { letters: atual, states }
+      const acertou = palavra === secretWord
 
       setSubmittedGuesses((tentativasAnteriores) => {
         const proximasTentativas = [...tentativasAnteriores, guess]
@@ -74,13 +105,15 @@ export function useGameState(): GameState & GameActions {
       })
 
       setMessage(null)
-      return ''
+      setCursor(0)
+      return palpiteVazio(WORD_LENGTH)
     })
   }, [secretWord])
 
   const resetGame = useCallback(() => {
     setSecretWord((anterior) => palavraAleatoria(anterior))
-    setCurrentGuess('')
+    setCurrentGuess(palpiteVazio(WORD_LENGTH))
+    setCursor(0)
     setSubmittedGuesses([])
     setStatus('playing')
     setMessage(null)
@@ -99,6 +132,14 @@ export function useGameState(): GameState & GameActions {
     removeLetter()
   }, [status, removeLetter])
 
+  const guardedSelectPosition = useCallback(
+    (indice: number) => {
+      if (status !== 'playing') return
+      selectPosition(indice)
+    },
+    [status, selectPosition],
+  )
+
   const guardedSubmitGuess = useCallback(() => {
     if (status !== 'playing') return
     submitGuess()
@@ -108,6 +149,7 @@ export function useGameState(): GameState & GameActions {
 
   return {
     currentGuess,
+    cursor,
     submittedGuesses,
     status,
     message,
@@ -116,6 +158,7 @@ export function useGameState(): GameState & GameActions {
     streak,
     addLetter: guardedAddLetter,
     removeLetter: guardedRemoveLetter,
+    selectPosition: guardedSelectPosition,
     submitGuess: guardedSubmitGuess,
     resetGame,
   }

@@ -31,6 +31,7 @@ export function DuelPage() {
     duracaoSegundos,
     nomeOponente,
     currentGuess,
+    cursor,
     submittedGuesses,
     keyStates,
     euConclui,
@@ -52,6 +53,7 @@ export function DuelPage() {
     entrarSala,
     addLetter,
     removeLetter,
+    selectPosition,
     enviarPalpite,
     pedirRevanche,
     reiniciar,
@@ -229,7 +231,12 @@ export function DuelPage() {
               <p className="text-center text-sm font-semibold text-fg-muted">Prorrogação</p>
             )}
 
-          <GameBoard rows={buildBoard(toBoardRows(submittedGuesses, currentGuess))} />
+          <GameBoard
+            rows={buildBoard(toBoardRows(submittedGuesses, currentGuess))}
+            activeRowIndex={submittedGuesses.length}
+            selectedColumn={cursor}
+            onSelectTile={euConclui ? undefined : selectPosition}
+          />
           <OpponentProgress
             nome={nomeOponente ?? 'Oponente'}
             tentativasUsadas={tentativasOponente}

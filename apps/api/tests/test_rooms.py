@@ -1,7 +1,13 @@
 import pytest
 
 from app.game.modes import GameMode
-from app.game.rooms import GerenciadorDeSalas, Sala, SalaEmAndamentoError, SalaNaoEncontradaError
+from app.game.rooms import (
+    GerenciadorDeSalas,
+    PalavraInvalidaError,
+    Sala,
+    SalaEmAndamentoError,
+    SalaNaoEncontradaError,
+)
 
 
 @pytest.fixture
@@ -10,7 +16,10 @@ def gerenciador() -> GerenciadorDeSalas:
 
 
 def _palpite_errado(segredo: str) -> str:
-    return "ZZZZZ" if segredo != "ZZZZZ" else "XXXXX"
+    # Precisa ser uma palavra que exista no dicionário (validação de
+    # palpite, pedido à parte) -- "CARRO"/"LIVRO" são duas das próprias
+    # respostas possíveis, garantidas no dicionário por união em words.py.
+    return "CARRO" if segredo != "CARRO" else "LIVRO"
 
 
 class TestCriarEEntrar:
@@ -536,3 +545,41 @@ class TestRevanche:
         assert os_dois_pediram is True
         assert sala_atualizada.jogadores["sid-1"].pontos_totais == 0
         assert sala_atualizada.rodada_atual == 1
+
+
+class TestValidacaoDePalavra:
+    def test_palpite_que_nao_existe_no_dicionario_e_rejeitado(
+        self, gerenciador: GerenciadorDeSalas
+    ) -> None:
+        sala = gerenciador.criar_sala("sid-1", "Ana", GameMode.competitivo)
+        gerenciador.entrar_sala("sid-2", "Beto", sala.codigo)
+
+        with pytest.raises(PalavraInvalidaError):
+            gerenciador.registrar_palpite("sid-1", "ZZZZZ")
+
+    def test_palpite_invalido_nao_consome_tentativa(
+        self, gerenciador: GerenciadorDeSalas
+    ) -> None:
+        sala = gerenciador.criar_sala("sid-1", "Ana", GameMode.competitivo)
+        gerenciador.entrar_sala("sid-2", "Beto", sala.codigo)
+
+        with pytest.raises(PalavraInvalidaError):
+            gerenciador.registrar_palpite("sid-1", "ZZZZZ")
+
+        assert sala.jogadores["sid-1"].tentativas == []
+
+    def test_depois_do_erro_ainda_consegue_mandar_um_palpite_valido(
+        self, gerenciador: GerenciadorDeSalas
+    ) -> None:
+        sala = gerenciador.criar_sala("sid-1", "Ana", GameMode.competitivo)
+        gerenciador.entrar_sala("sid-2", "Beto", sala.codigo)
+        assert sala.palavra_secreta is not None
+        errado = _palpite_errado(sala.palavra_secreta)
+
+        with pytest.raises(PalavraInvalidaError):
+            gerenciador.registrar_palpite("sid-1", "ZZZZZ")
+
+        sala_atualizada, _, numero_tentativa, _ = gerenciador.registrar_palpite("sid-1", errado)
+
+        assert numero_tentativa == 1  # a tentativa inválida não contou
+        assert sala_atualizada.jogadores["sid-1"].tentativas[0].letras == list(errado)

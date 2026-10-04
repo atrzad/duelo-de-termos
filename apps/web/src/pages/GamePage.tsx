@@ -11,6 +11,7 @@ import { useGameState } from '../features/game/useGameState'
 export function GamePage() {
   const {
     currentGuess,
+    cursor,
     submittedGuesses,
     status,
     message,
@@ -19,6 +20,7 @@ export function GamePage() {
     streak,
     addLetter,
     removeLetter,
+    selectPosition,
     submitGuess,
     resetGame,
   } = useGameState()
@@ -61,7 +63,12 @@ export function GamePage() {
         </span>
       </header>
 
-      <GameBoard rows={board} />
+      <GameBoard
+        rows={board}
+        activeRowIndex={submittedGuesses.length}
+        selectedColumn={cursor}
+        onSelectTile={status === 'playing' ? selectPosition : undefined}
+      />
 
       <p role="status" aria-live="polite" className="h-5 text-center text-sm text-danger">
         {message}

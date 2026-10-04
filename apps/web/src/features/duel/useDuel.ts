@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import {
+  apagarNoCursor,
+  escreverNoCursor,
+  fixarCursor,
+  guessEstaCompleto,
+  palpiteVazio,
+} from '../game/guessCursor'
 import { mesclarEstadosDoTeclado } from '../game/keyStates'
 import type { LetterState, SubmittedGuess } from '../../types/game'
 import { getSocket } from './socket'
@@ -27,7 +34,11 @@ export interface DuelState {
   modo: GameMode | null
   duracaoSegundos: number | null
   nomeOponente: string | null
-  currentGuess: string
+  /** Array de WORD_LENGTH posições ('' = ainda vazia) -- não uma string,
+   * porque o cursor pode ser movido pra qualquer quadrado (ver cursor). */
+  currentGuess: string[]
+  /** Posição do quadrado selecionado na linha em digitação. */
+  cursor: number
   submittedGuesses: SubmittedGuess[]
   tentativasOponente: number
   tempoEsgotado: boolean
@@ -55,6 +66,7 @@ export interface DuelActions {
   entrarSala: (nome: string, codigo: string) => void
   addLetter: (letter: string) => void
   removeLetter: () => void
+  selectPosition: (indice: number) => void
   enviarPalpite: () => void
   pedirRevanche: () => void
   reiniciar: () => void
@@ -66,7 +78,8 @@ const ESTADO_INICIAL: DuelState = {
   modo: null,
   duracaoSegundos: null,
   nomeOponente: null,
-  currentGuess: '',
+  currentGuess: palpiteVazio(WORD_LENGTH),
+  cursor: 0,
   submittedGuesses: [],
   tentativasOponente: 0,
   tempoEsgotado: false,
@@ -121,11 +134,13 @@ export function useDuel(): DuelState & DuelActions & DuelDerived {
   // Pra ler o palpite atual / a fase dentro de callbacks estáveis (useCallback
   // com deps vazias), sem recriar a função a cada letra digitada. Atualizados
   // depois da renderização (nunca durante) — regra do react-hooks/refs.
-  const currentGuessRef = useRef('')
+  const currentGuessRef = useRef<string[]>(palpiteVazio(WORD_LENGTH))
+  const cursorRef = useRef(0)
   const faseRef = useRef<FaseDuelo>('lobby')
   const euConcluiRef = useRef(false)
   useEffect(() => {
     currentGuessRef.current = estado.currentGuess
+    cursorRef.current = estado.cursor
     faseRef.current = estado.fase
     euConcluiRef.current = calcularEuConclui(
       estado.submittedGuesses,
@@ -161,7 +176,8 @@ export function useDuel(): DuelState & DuelActions & DuelDerived {
         modo: dados.modo,
         duracaoSegundos: dados.duracaoSegundos,
         nomeOponente: dados.oponente,
-        currentGuess: '',
+        currentGuess: palpiteVazio(WORD_LENGTH),
+        cursor: 0,
         submittedGuesses: [],
         tentativasOponente: 0,
         tempoEsgotado: false,
@@ -191,7 +207,8 @@ export function useDuel(): DuelState & DuelActions & DuelDerived {
         modo: dados.modo,
         duracaoSegundos: dados.duracaoSegundos,
         nomeOponente: dados.oponente,
-        currentGuess: '',
+        currentGuess: palpiteVazio(WORD_LENGTH),
+        cursor: 0,
         submittedGuesses: dados.minhasTentativas.map((t) => ({
           letters: t.letras,
           states: t.estados,
@@ -224,7 +241,8 @@ export function useDuel(): DuelState & DuelActions & DuelDerived {
     const aoResultadoPalpite = (dados: ResultadoPalpitePayload) => {
       setEstado((anterior) => ({
         ...anterior,
-        currentGuess: '',
+        currentGuess: palpiteVazio(WORD_LENGTH),
+        cursor: 0,
         mensagemErro: null,
         submittedGuesses: [
           ...anterior.submittedGuesses,
@@ -238,7 +256,12 @@ export function useDuel(): DuelState & DuelActions & DuelDerived {
     }
 
     const aoTempoEsgotado = () => {
-      setEstado((anterior) => ({ ...anterior, tempoEsgotado: true, currentGuess: '' }))
+      setEstado((anterior) => ({
+        ...anterior,
+        tempoEsgotado: true,
+        currentGuess: palpiteVazio(WORD_LENGTH),
+        cursor: 0,
+      }))
     }
 
     const aoFimDeJogo = (dados: FimDeJogoPayload) => {
@@ -321,25 +344,41 @@ export function useDuel(): DuelState & DuelActions & DuelDerived {
   const addLetter = useCallback((letter: string) => {
     if (faseRef.current !== 'jogando' || euConcluiRef.current) return
     if (!/^[a-zA-Z]$/.test(letter)) return
-    setEstado((anterior) => {
-      if (anterior.currentGuess.length >= WORD_LENGTH) return anterior
-      return { ...anterior, currentGuess: anterior.currentGuess + letter.toUpperCase() }
-    })
+    const resultado = escreverNoCursor(
+      currentGuessRef.current,
+      cursorRef.current,
+      letter.toUpperCase(),
+    )
+    setEstado((anterior) => ({
+      ...anterior,
+      currentGuess: resultado.guess,
+      cursor: resultado.cursor,
+    }))
   }, [])
 
   const removeLetter = useCallback(() => {
     if (faseRef.current !== 'jogando' || euConcluiRef.current) return
-    setEstado((anterior) => ({ ...anterior, currentGuess: anterior.currentGuess.slice(0, -1) }))
+    const resultado = apagarNoCursor(currentGuessRef.current, cursorRef.current)
+    setEstado((anterior) => ({
+      ...anterior,
+      currentGuess: resultado.guess,
+      cursor: resultado.cursor,
+    }))
+  }, [])
+
+  const selectPosition = useCallback((indice: number) => {
+    if (faseRef.current !== 'jogando' || euConcluiRef.current) return
+    setEstado((anterior) => ({ ...anterior, cursor: fixarCursor(indice, WORD_LENGTH) }))
   }, [])
 
   const enviarPalpite = useCallback(() => {
     if (faseRef.current !== 'jogando' || euConcluiRef.current) return
-    const palavra = currentGuessRef.current
-    if (palavra.length < WORD_LENGTH) {
+    const guess = currentGuessRef.current
+    if (!guessEstaCompleto(guess)) {
       setEstado((anterior) => ({ ...anterior, mensagemErro: 'Palavra incompleta.' }))
       return
     }
-    getSocket().emit('enviar_palpite', { palavra })
+    getSocket().emit('enviar_palpite', { palavra: guess.join('') })
   }, [])
 
   const pedirRevanche = useCallback(() => {
@@ -368,6 +407,7 @@ export function useDuel(): DuelState & DuelActions & DuelDerived {
     entrarSala,
     addLetter,
     removeLetter,
+    selectPosition,
     enviarPalpite,
     pedirRevanche,
     reiniciar,

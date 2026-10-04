@@ -28,7 +28,7 @@ def _sala_finalizada_competitivo() -> Sala:
     gerenciador.entrar_sala("sid-2", "Beto", sala.codigo)
     assert sala.palavra_secreta is not None
     segredo = sala.palavra_secreta
-    errado = "ZZZZZ" if segredo != "ZZZZZ" else "XXXXX"
+    errado = "CARRO" if segredo != "CARRO" else "LIVRO"  # precisa existir no dicionario
 
     gerenciador.registrar_palpite("sid-1", segredo)
     gerenciador.registrar_palpite("sid-2", errado)

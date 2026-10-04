@@ -4,9 +4,12 @@ import { LetterTile } from './LetterTile'
 interface GuessRowProps {
   row: BoardRow
   rowNumber: number
+  /** Só a linha em digitação recebe isso -- as demais nunca são clicáveis. */
+  onSelectColumn?: ((indice: number) => void) | undefined
+  selectedColumn?: number | null
 }
 
-export function GuessRow({ row, rowNumber }: GuessRowProps) {
+export function GuessRow({ row, rowNumber, onSelectColumn, selectedColumn }: GuessRowProps) {
   return (
     <div
       role="row"
@@ -14,7 +17,18 @@ export function GuessRow({ row, rowNumber }: GuessRowProps) {
       className="grid grid-cols-5 gap-1.5"
     >
       {row.map((tile, index) => (
-        <LetterTile key={index} tile={tile} />
+        <LetterTile
+          key={index}
+          tile={tile}
+          onSelect={
+            onSelectColumn
+              ? () => {
+                  onSelectColumn(index)
+                }
+              : undefined
+          }
+          selected={selectedColumn === index}
+        />
       ))}
     </div>
   )

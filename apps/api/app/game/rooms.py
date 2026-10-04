@@ -19,7 +19,7 @@ from app.game.modes import (
     pontuacao_normal,
 )
 from app.game.rules import LetterState, evaluate_guess
-from app.game.words import palavra_aleatoria
+from app.game.words import palavra_aleatoria, palavra_e_valida
 
 RoomStatus = Literal["aguardando", "jogando", "finalizada"]
 Resultado = Literal["venceu", "perdeu", "empate"]
@@ -101,6 +101,13 @@ class SalaNaoEncontradaError(Exception):
 
 
 class SalaEmAndamentoError(Exception):
+    pass
+
+
+class PalavraInvalidaError(Exception):
+    """Palpite de 5 letras válido no formato, mas que não existe no
+    dicionário (app/game/words.py) -- pedido à parte, 2026-10-03."""
+
     pass
 
 
@@ -255,6 +262,10 @@ class GerenciadorDeSalas:
             # Só o modo Normal tem tentativa pós-tempo; Infinito não tem
             # timer; Hardcore não tem nenhum dos dois.
             raise SalaEmAndamentoError(sid)
+        if not palavra_e_valida(palavra):
+            # Antes de avaliar/consumir a tentativa: palpite que não existe
+            # no dicionário não gasta uma das tentativas do jogador.
+            raise PalavraInvalidaError(palavra)
 
         estados = evaluate_guess(palavra, sala.palavra_secreta)
         tentativa = Tentativa(letras=list(palavra.upper()), estados=estados)

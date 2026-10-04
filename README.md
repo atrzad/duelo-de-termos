@@ -35,13 +35,24 @@ notas dentro de cada fase no `PROJECT_SCOPE.md`).
   - **Revanche direta** (seção 9.5, fora do escopo original): depois que uma partida termina,
     qualquer um pode pedir pra jogar de novo com o mesmo oponente — quando os dois pedem, a mesma
     sala reinicia (código, jogadores e modo iguais, placar zerado).
+  - **Cursor clicável** (pedido à parte): clicar num quadrado da linha em digitação move o cursor
+    pra lá — a próxima letra sobrescreve aquela posição em vez de só acrescentar no final. Mesma
+    lógica pros dois modos (`features/game/guessCursor.ts`).
+  - **Dicionário de validação** (pedido à parte): todo palpite só é aceito se existir — ~18 mil
+    palavras de 5 letras geradas do dicionário hunspell `pt_BR` (pacote AUR `hunspell-pt-br`,
+    expandido com `unmunch`, sem acento, filtrado pra 5 letras). Palpite que não existe mostra
+    "Essa palavra não existe." e NÃO consome a tentativa — nos dois modos (solo valida local,
+    1v1 valida no servidor). Arquivo duplicado em `apps/api/app/game/data/` e
+    `apps/web/src/features/game/data/` (mesma dívida técnica consciente do pool de respostas).
 - Rate limit no `enviar_palpite` (0.3s) e no `criar_sala` (2s) — `app/game/rate_limit.py`.
-- **Testado de verdade**, não só por inspeção: 79 testes Pytest (unit + 16 de integração com 2
+- **Testado de verdade**, não só por inspeção: 88 testes Pytest (unit + 17 de integração com 2
   clientes Socket.IO reais, incluindo timers reais de 1s via monkeypatch — não mocka o
   `asyncio.sleep`, cobrindo inclusive desconexão/reconexão de verdade com 2 conexões Socket.IO
-  diferentes) + 26 testes Vitest + verificação manual com 2 navegadores reais (Playwright)
+  diferentes) + 40 testes Vitest + verificação manual com 2 navegadores reais (Playwright)
   cobrindo os 4 modos, persistência via `GET /partidas`, reconexão depois de um reload de página
-  de verdade, e o fluxo completo de revanche (pedido → aviso ao oponente → aceite → rodada nova).
+  de verdade, o fluxo completo de revanche (pedido → aviso ao oponente → aceite → rodada nova), o
+  cursor clicável sobrescrevendo uma posição específica, e a rejeição de palavra inexistente sem
+  consumir tentativa.
 
 > **Nota sobre cortes de escopo (2026-10-03):** ficou de fora (ver `PROJECT_SCOPE.md`, Fase 5):
 > expiração de salas abandonadas (ficam em memória indefinidamente), logs estruturados, handshake
@@ -220,6 +231,14 @@ variáveis.
   `[[tool.mypy.overrides]]`; `greenlet` é dependência transitiva obrigatória do
   `sqlalchemy[asyncio]` (sem ela, erro só aparece ao importar `sqlalchemy.ext.asyncio`, não na
   instalação).
+- **Dicionário de palpites gerado uma vez, versionado — não regenerado em runtime.**
+  `apps/api/app/game/data/palavras_validas.txt` (e a cópia em `apps/web/.../data/`) vieram de
+  `unmunch pt_BR.dic pt_BR.aff` (pacote AUR `hunspell-pt-br`) expandindo todas as conjugações,
+  removendo acento e filtrando pra 5 letras (10M+ formas → 18212 palavras únicas). O repo não
+  depende de `hunspell` instalado pra RODAR — só pra regenerar o arquivo, se um dia precisar de
+  mais cobertura. Cursor clicável (`guessCursor.ts`) guarda o palpite em digitação como array de
+  posições fixas (não string), porque o cursor pode pular pra qualquer quadrado e abrir buracos
+  no meio da palavra.
 
 ## Deploy
 

@@ -24,22 +24,27 @@ export function buildBoard(
  * Converte as tentativas já enviadas + o palpite em digitação numa lista de
  * linhas visuais (BoardRow[]). Função pura de apresentação: não avalia nada,
  * só traduz o estado do jogo pro formato que o tabuleiro sabe desenhar.
+ *
+ * `currentGuess` é um array de tamanho fixo (WORD_LENGTH posições, '' onde
+ * ainda não foi digitada nenhuma letra) — não uma string — porque o cursor
+ * pode ser movido pra qualquer posição (clique num quadrado), deixando
+ * buracos no meio da palavra em digitação.
  */
 export function toBoardRows(
   submittedGuesses: readonly SubmittedGuess[],
-  currentGuess: string,
+  currentGuess: readonly string[],
 ): BoardRow[] {
   const linhasEnviadas: BoardRow[] = submittedGuesses.map(({ letters, states }) =>
     letters.map((letter, index) => ({ letter, state: states[index] ?? 'absent' })),
   )
 
-  if (currentGuess.length === 0) {
+  if (currentGuess.every((letra) => letra === '')) {
     return linhasEnviadas
   }
 
-  const linhaAtual: BoardRow = currentGuess.split('').map((letter) => ({
-    letter,
-    state: 'filled',
+  const linhaAtual: BoardRow = currentGuess.map((letra) => ({
+    letter: letra,
+    state: letra === '' ? 'empty' : 'filled',
   }))
 
   return [...linhasEnviadas, linhaAtual]

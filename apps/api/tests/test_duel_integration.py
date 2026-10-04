@@ -148,7 +148,7 @@ async def test_duelo_competitivo_ate_vitoria_sem_vazar_letras_do_oponente(
         # entre os palpites pra respeitar o rate limit do servidor (0.3s) —
         # um cliente real nunca digita uma palavra de 5 letras mais rápido
         # que isso de qualquer forma.
-        errado = "ZZZZZ" if segredo != "ZZZZZ" else "XXXXX"
+        errado = "CARRO" if segredo != "CARRO" else "LIVRO"  # precisa existir no dicionario
         for _ in range(6):
             await beto.sio.emit("enviar_palpite", {"palavra": errado})
             await beto.proximo_evento()  # resultado_palpite
@@ -192,7 +192,7 @@ async def test_duelo_infinito_avanca_rodada_e_acumula_placar_sem_terminar(
         assert sala is not None
         segredo = sala.palavra_secreta
         assert segredo is not None
-        errado = "ZZZZZ" if segredo != "ZZZZZ" else "XXXXX"
+        errado = "CARRO" if segredo != "CARRO" else "LIVRO"  # precisa existir no dicionario
 
         await ana.sio.emit("enviar_palpite", {"palavra": segredo})
         await ana.aguardar("resultado_palpite")  # Ana acerta de primeira: 6 pontos
@@ -425,18 +425,25 @@ async def test_rate_limit_bloqueia_palpites_em_sequencia_rapida_demais(
         await ana.aguardar("partida_iniciada")
         await beto.aguardar("partida_iniciada")
 
-        await ana.sio.emit("enviar_palpite", {"palavra": "ABCDF"})
+        sala = gerenciador._salas.get(codigo)
+        assert sala is not None and sala.palavra_secreta is not None
+        # Precisa ser uma palavra errada (nunca a secreta) que EXISTA no
+        # dicionário -- se ganhasse de primeira, as próximas tentativas
+        # seriam bloqueadas por SalaEmAndamentoError, não pelo rate limit.
+        errado = "CARRO" if sala.palavra_secreta != "CARRO" else "LIVRO"
+
+        await ana.sio.emit("enviar_palpite", {"palavra": errado})
         await ana.aguardar("resultado_palpite")
 
         # Manda outro palpite na sequência, sem esperar o cooldown (0.3s).
-        await ana.sio.emit("enviar_palpite", {"palavra": "GHIJK"})
+        await ana.sio.emit("enviar_palpite", {"palavra": errado})
         evento, dados_erro = await ana.proximo_evento()
         assert evento == "erro"
         assert "mensagem" in dados_erro
 
         # Depois de esperar o cooldown passar, volta a funcionar normalmente.
         await asyncio.sleep(0.35)
-        await ana.sio.emit("enviar_palpite", {"palavra": "GHIJK"})
+        await ana.sio.emit("enviar_palpite", {"palavra": errado})
         evento, _ = await ana.proximo_evento()
         assert evento == "resultado_palpite"
     finally:
@@ -459,6 +466,45 @@ async def test_palpite_invalido_retorna_erro_amigavel(servidor_de_teste: None) -
         assert "mensagem" in dados
     finally:
         await cliente.desconectar()
+
+
+@pytest.mark.asyncio
+async def test_palavra_que_nao_existe_e_rejeitada_sem_consumir_tentativa(
+    servidor_de_teste: None,
+) -> None:
+    ana = ClienteDeTeste()
+    beto = ClienteDeTeste()
+    try:
+        await ana.conectar()
+        await beto.conectar()
+
+        await ana.sio.emit("criar_sala", {"nome": "Ana", "modo": "competitivo"})
+        _, dados = await ana.proximo_evento()
+        codigo = dados["codigo"]
+
+        await beto.sio.emit("entrar_sala", {"nome": "Beto", "codigo": codigo})
+        await ana.aguardar("partida_iniciada")
+        await beto.aguardar("partida_iniciada")
+
+        sala = gerenciador._salas.get(codigo)
+        assert sala is not None and sala.palavra_secreta is not None
+        errado = "CARRO" if sala.palavra_secreta != "CARRO" else "LIVRO"
+
+        # "ZZZZZ" tem 5 letras (passa o schema), mas não existe no dicionário.
+        await ana.sio.emit("enviar_palpite", {"palavra": "ZZZZZ"})
+        evento, dados_erro = await ana.proximo_evento()
+        assert evento == "erro"
+        assert "mensagem" in dados_erro
+
+        # Não consumiu a tentativa -- um palpite de verdade ainda é a 1ª.
+        # Espera o cooldown do rate limit (0.3s) entre os dois envios.
+        await asyncio.sleep(0.35)
+        await ana.sio.emit("enviar_palpite", {"palavra": errado})
+        dados_resultado = await ana.aguardar("resultado_palpite")
+        assert dados_resultado["numeroTentativa"] == 1
+    finally:
+        await ana.desconectar()
+        await beto.desconectar()
 
 
 @pytest.mark.asyncio
@@ -541,7 +587,7 @@ async def test_reconexao_recupera_o_estado_e_avisa_o_oponente(
         assert sala is not None
         segredo = sala.palavra_secreta
         assert segredo is not None
-        errado = "ZZZZZ" if segredo != "ZZZZZ" else "XXXXX"
+        errado = "CARRO" if segredo != "CARRO" else "LIVRO"  # precisa existir no dicionario
 
         await ana.sio.emit("enviar_palpite", {"palavra": errado})
         await ana.aguardar("resultado_palpite")

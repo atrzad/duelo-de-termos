@@ -16,6 +16,7 @@ from app.game.modes import TIMER_HARDCORE_SEGUNDOS, TIMER_NORMAL_SEGUNDOS, GameM
 from app.game.persistence import salvar_partida
 from app.game.rate_limit import LimitadorDeTaxa
 from app.game.rooms import (
+    PalavraInvalidaError,
     Sala,
     SalaEmAndamentoError,
     SalaNaoEncontradaError,
@@ -335,6 +336,9 @@ async def enviar_palpite(sid: str, data: Any) -> None:
         return
     except SalaEmAndamentoError:
         await _erro(sid, "Não é possível enviar palpite agora.")
+        return
+    except PalavraInvalidaError:
+        await _erro(sid, "Essa palavra não existe.")
         return
 
     await sio.emit(

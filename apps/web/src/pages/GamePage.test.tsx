@@ -3,13 +3,20 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router'
 import { describe, expect, it, vi } from 'vitest'
 
+import type * as WordsModule from '../features/game/words'
 import { GamePage } from './GamePage'
 
 // Fixa a palavra sorteada pra cada teste ficar determinístico (sem isso o
 // modo infinito sorteia uma palavra nova a cada montagem do componente).
-vi.mock('../features/game/words', () => ({
-  palavraAleatoria: () => 'TERMO',
-}))
+// importOriginal preserva PALAVRAS -- palavrasValidas.ts depende dela pra
+// garantir que toda resposta possível também é um palpite válido.
+vi.mock('../features/game/words', async (importOriginal) => {
+  const original = await importOriginal<typeof WordsModule>()
+  return {
+    ...original,
+    palavraAleatoria: () => 'TERMO',
+  }
+})
 
 async function digitarPalpite(usuario: ReturnType<typeof userEvent.setup>, palavra: string) {
   await usuario.keyboard(`${palavra}{Enter}`)
@@ -28,11 +35,11 @@ describe('GamePage', () => {
     const usuario = userEvent.setup()
     renderizarPagina()
 
-    // TERMO é a palavra secreta mockada; ABCDF não tem nenhuma letra em comum.
-    await digitarPalpite(usuario, 'ABCDF')
+    // TERMO é a palavra secreta mockada; CULPA não tem nenhuma letra em comum.
+    await digitarPalpite(usuario, 'CULPA')
 
-    expect(screen.getByRole('gridcell', { name: 'A, ausente na palavra' })).toBeInTheDocument()
-    expect(screen.getByRole('gridcell', { name: 'F, ausente na palavra' })).toBeInTheDocument()
+    expect(screen.getByRole('gridcell', { name: 'C, ausente na palavra' })).toBeInTheDocument()
+    expect(screen.getByRole('gridcell', { name: 'U, ausente na palavra' })).toBeInTheDocument()
   })
 
   it('declara vitória ao acertar a palavra, soma a sequência e permite jogar a próxima', async () => {
@@ -60,12 +67,23 @@ describe('GamePage', () => {
     expect(await screen.findByText('Palavra incompleta.')).toBeInTheDocument()
   })
 
+  it('mostra mensagem amigável ao tentar enviar uma palavra que não existe', async () => {
+    const usuario = userEvent.setup()
+    renderizarPagina()
+
+    await digitarPalpite(usuario, 'ZZZZZ')
+
+    expect(await screen.findByText('Essa palavra não existe.')).toBeInTheDocument()
+    // Não consumiu a tentativa -- o tabuleiro continua vazio.
+    expect(screen.queryByRole('gridcell', { name: /ausente|presente|correta/ })).toBeNull()
+  })
+
   it('declara derrota depois de seis tentativas erradas, revela a palavra e zera a sequência', async () => {
     const usuario = userEvent.setup()
     renderizarPagina()
 
     for (let tentativa = 0; tentativa < 6; tentativa++) {
-      await digitarPalpite(usuario, 'ABCDF')
+      await digitarPalpite(usuario, 'CULPA')
     }
 
     expect(await screen.findByText('Você perdeu.')).toBeInTheDocument()
