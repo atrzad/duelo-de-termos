@@ -4,99 +4,19 @@
  * pro 1v1 (lá o sorteio é no servidor, nunca revelado ao cliente); manter as
  * duas em sincronia é dívida técnica consciente — não há um ponto único de
  * verdade ainda porque o modo infinito continua 100% local (Fase 1).
+ *
+ * 2283 palavras (pedido à parte em 2026-10-04, "pelo menos 2000"): geradas a
+ * partir dos lemas de 5 letras do dicionário hunspell pt_BR, ranqueados por
+ * frequência real de uso (`wordfreq`, corpus "pt", corte em zipf >= 1.5) +
+ * as 90 escolhidas à mão originalmente (sempre inclusas). Ver
+ * apps/api/app/game/words.py pro histórico completo de como foi gerado.
  */
-export const PALAVRAS: readonly string[] = [
-  'TERMO',
-  'PRATO',
-  'CARRO',
-  'LIVRO',
-  'BANCO',
-  'CAMPO',
-  'FESTA',
-  'MUNDO',
-  'PORTA',
-  'VIDRO',
-  'TEMPO',
-  'GRUPO',
-  'CARTA',
-  'CORPO',
-  'MORTE',
-  'NOITE',
-  'FONTE',
-  'LENTE',
-  'FRUTA',
-  'PEIXE',
-  'LEITE',
-  'BARCO',
-  'TIGRE',
-  'GRAVE',
-  'FRASE',
-  'CLIMA',
-  'TECLA',
-  'VALOR',
-  'HONRA',
-  'CULPA',
-  'SONHO',
-  'TOQUE',
-  'FOLHA',
-  'CHUVA',
-  'PEDRA',
-  'AREIA',
-  'VERME',
-  'NAVIO',
-  'BARRO',
-  'FIBRA',
-  'GESSO',
-  'LINHA',
-  'MANGA',
-  'SALTO',
-  'PONTE',
-  'FORNO',
-  'MOEDA',
-  'PALCO',
-  'TORRE',
-  'FOLGA',
-  'GRAMA',
-  'CARGO',
-  'SURTO',
-  'MOLHO',
-  'CESTO',
-  'PONTO',
-  'FORTE',
-  'BRISA',
-  'PRESA',
-  'FELIZ',
-  'VERDE',
-  'PRETO',
-  'SUAVE',
-  'NOBRE',
-  'LIVRE',
-  'BREVE',
-  'JOVEM',
-  'MACIO',
-  'RIGOR',
-  'VAPOR',
-  'MOTOR',
-  'SETOR',
-  'FATOR',
-  'LITRO',
-  'METRO',
-  'VENTO',
-  'PESCA',
-  'TEXTO',
-  'PACTO',
-  'FATIA',
-  'BOLHA',
-  'GALHO',
-  'OUTRO',
-  'RURAL',
-  'LOCAL',
-  'FINAL',
-  'IDEAL',
-  'METAL',
-  'SINAL',
-  'CANAL',
-]
+import textoBruto from './data/palavras_respostas.txt?raw'
+
+export const PALAVRAS: readonly string[] = textoBruto
+  .split('\n')
+  .map((linha) => linha.trim())
+  .filter(Boolean)
 
 export function palavraAleatoria(excluir?: string): string {
   if (PALAVRAS.length <= 1) return PALAVRAS[0] ?? 'TERMO'

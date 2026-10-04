@@ -14,8 +14,9 @@ notas dentro de cada fase no `PROJECT_SCOPE.md`).
   3 modos), `rooms.py` (salas em memória, por modo), `sockets.py` (eventos + timers),
   `persistence.py` (histórico em SQLite). `GET /partidas` lista o histórico.
 - `apps/web`: React + TypeScript + Vite + Tailwind.
-  - **Modo infinito** (`/jogo`): sozinho, local, palavra aleatória a cada rodada (pool de ~90
-    palavras em `features/game/words.ts`), sequência de acertos, teclado virtual+físico.
+  - **Modo infinito** (`/jogo`): sozinho, local, palavra aleatória a cada rodada (pool de 2283
+    palavras em `features/game/words.ts` — ver nota sobre o tamanho do pool abaixo), sequência de
+    acertos, teclado virtual+físico.
   - **1v1** (`/duelo`): cria ou entra numa sala por código de 4 letras, escolhendo um dos 4 modos:
     - **Competitivo** — 6 tentativas cada, sem timer; pontos = `7 - tentativas` (quem acerta
       acertou continua podendo pontuar enquanto o oponente ainda joga).
@@ -44,6 +45,13 @@ notas dentro de cada fase no `PROJECT_SCOPE.md`).
     "Essa palavra não existe." e NÃO consome a tentativa — nos dois modos (solo valida local,
     1v1 valida no servidor). Arquivo duplicado em `apps/api/app/game/data/` e
     `apps/web/src/features/game/data/` (mesma dívida técnica consciente do pool de respostas).
+  - **Pool de respostas ampliado pra 2283 palavras** (pedido à parte, 2026-10-04 — "pelo menos
+    2000"): as ~90 escolhidas à mão deram lugar a um pool bem maior, gerado a partir dos lemas
+    (formas-base, sem flexão) de 5 letras do dicionário hunspell `pt_BR`, ranqueados por
+    frequência real de uso (pacote `wordfreq`, corpus `"pt"`) e cortados em zipf ≥ 1.5 pra
+    descartar os termos mais raros/obscuros, mais um denylist manual pequeno pra termos
+    ofensivos encontrados na lista. As 90 originais continuam garantidas (união), mesmo as poucas
+    que não bateram o corte de frequência. `apps/api/app/game/data/palavras_respostas.txt`.
 - Rate limit no `enviar_palpite` (0.3s) e no `criar_sala` (2s) — `app/game/rate_limit.py`.
 - **Testado de verdade**, não só por inspeção: 88 testes Pytest (unit + 17 de integração com 2
   clientes Socket.IO reais, incluindo timers reais de 1s via monkeypatch — não mocka o

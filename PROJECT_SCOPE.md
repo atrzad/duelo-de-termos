@@ -370,6 +370,15 @@ absent = letra não existe ou excede a quantidade presente na palavra
 - Palavras inválidas não consomem tentativa.
 - O backend deve validar se o palpite existe no dicionário permitido.
 
+> **Implementado em 2026-10-03/04**: as duas regras acima já estavam previstas aqui desde o
+> início, mas não tinham sido feitas -- ver seção 13 pro dicionário de validação (18212 palavras
+> válidas como palpite) e esta nota aqui pro pool de RESPOSTAS possíveis, ampliado de ~90 pra
+> 2283 palavras em 2026-10-04 (pedido à parte, "pelo menos 2000"): lemas de 5 letras do hunspell
+> pt_BR, ranqueados por frequência real (`wordfreq`, corpus `"pt"`, corte em zipf >= 1.5) +
+> denylist manual pra termos ofensivos + as 90 originais sempre garantidas por união.
+> `apps/api/app/game/data/palavras_respostas.txt` (duplicado pro frontend, mesma dívida técnica
+> consciente do resto do pool de palavras).
+
 ### Avaliação das letras
 
 A avaliação deve tratar letras repetidas corretamente.
