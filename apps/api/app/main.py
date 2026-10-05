@@ -1,7 +1,8 @@
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 import socketio
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -27,6 +28,19 @@ def create_app() -> FastAPI:
     app.include_router(api_router)
 
     if WEB_DIST.is_dir():
+        # Arquivos em /assets têm hash no nome (gerado pelo Vite a cada
+        # build) -- cache longo e seguro, nunca fica desatualizado porque um
+        # build novo gera um nome novo. StaticFiles não tem opção nativa pra
+        # header extra, daí o middleware.
+        @app.middleware("http")
+        async def cache_control_assets(
+            request: Request, call_next: Callable[[Request], Awaitable[Response]]
+        ) -> Response:
+            response = await call_next(request)
+            if request.url.path.startswith("/assets/"):
+                response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+            return response
+
         app.mount("/assets", StaticFiles(directory=WEB_DIST / "assets"), name="web-assets")
 
         @app.get("/{caminho:path}", include_in_schema=False)
@@ -34,10 +48,16 @@ def create_app() -> FastAPI:
             # Serve o arquivo real se existir (ex: favicon.ico); senão cai no
             # index.html pra o React Router cuidar da rota (SPA).
             # resolve() + is_relative_to() impede path traversal via "..".
+            # Cache-Control: no-cache em TUDO aqui (nunca o /assets com hash
+            # acima) -- sem isso o navegador pode guardar um index.html velho
+            # e nunca buscar o JS/CSS novo depois de um deploy (ele só reage
+            # ao <script src> com hash NOVO que está dentro do index.html
+            # novo, então o index.html precisa sempre revalidar).
             candidato = (WEB_DIST / caminho).resolve()
+            headers = {"Cache-Control": "no-cache"}
             if caminho and candidato.is_relative_to(WEB_DIST) and candidato.is_file():
-                return FileResponse(candidato)
-            return FileResponse(WEB_DIST / "index.html")
+                return FileResponse(candidato, headers=headers)
+            return FileResponse(WEB_DIST / "index.html", headers=headers)
 
     return app
 

@@ -247,6 +247,14 @@ variáveis.
   mais cobertura. Cursor clicável (`guessCursor.ts`) guarda o palpite em digitação como array de
   posições fixas (não string), porque o cursor pode pular pra qualquer quadrado e abrir buracos
   no meio da palavra.
+- **`Cache-Control` explícito pro frontend servido pela API** (`app/main.py`): `index.html` (e
+  qualquer arquivo estático fora de `/assets`) sempre `no-cache` — sem isso, o navegador pode
+  guardar um `index.html` de um deploy antigo (apontando pro JS/CSS de uma versão anterior) e
+  nunca buscar a nova, mesmo depois de reiniciar o serviço. Só apareceu com um celular de verdade
+  rodando uma build velha em cache dias depois do deploy (2026-10-04) — `TestClient` nunca pega
+  esse tipo de bug porque não tem cache HTTP de verdade. `/assets/*.js`/`.css` têm hash no nome
+  (gerado pelo Vite a cada build), então esses sim ganham cache longo e imutável — nome novo a
+  cada build, nunca fica desatualizado.
 
 ## Deploy
 
